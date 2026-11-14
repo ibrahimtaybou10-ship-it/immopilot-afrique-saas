@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ImmoPilot Afrique — SaaS Gestion Locative & Collecte de Loyers B2B</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Inter", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #FAFBFC; color: #0F172A; font-family: "Inter", sans-serif; }
+    .magnetic-btn { transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+    .magnetic-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px -4px rgba(30, 58, 138, 0.28); }
+    .magnetic-btn:active:not(:disabled) { transform: translateY(0px); }
+    .card-surface { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03); }
+    .slide-over-backdrop { background: rgba(15, 23, 42, 0.38); backdrop-filter: blur(2px); }
+    @keyframes toastSlideIn { from { transform: translateY(16px) scale(0.96); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+    .sonner-toast { animation: toastSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  </style>
+</head>
+<body class="min-h-screen antialiased selection:bg-blue-900 selection:text-white">
+
+  <!-- SONNER-STYLE TOAST CONTAINER -->
+  <div id="sonner-toaster" class="fixed bottom-5 right-5 z-[100] flex flex-col gap-2.5 max-w-md w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- TOP MODE SWITCHER -->
+  <div class="bg-slate-900 text-white px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 sticky top-0 z-50">
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="font-semibold">ImmoPilot Afrique B2B (Next.js 14 + Supabase RLS + SMS/WhatsApp + Cron + PDF)</span>
+      <span id="auth-status-pill" class="hidden sm:inline-block bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-mono text-[11px]">Session: DG Koffi (Connecté)</span>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <button type="button" onclick="openModal('modal-github')" class="px-3 py-1 rounded-md font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition">🐙 Déployer sur GitHub (1-Clic)</button>
+      <button type="button" onclick="switchMode('app')" id="mode-app-btn" class="px-3 py-1 rounded-md font-semibold bg-blue-600 text-white transition">1. SaaS Dashboard</button>
+      <button type="button" onclick="switchMode('login')" id="mode-login-btn" class="px-3 py-1 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition">2. Page Login</button>
+      <button type="button" onclick="switchMode('landing')" id="mode-landing-btn" class="px-3 py-1 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition">3. Landing Page</button>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL GITHUB 1-CLICK DEPLOYER                                         -->
+  <!-- ===================================================================== -->
+  <div id="modal-github" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 slide-over-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-xl w-full mx-auto my-8">
+      <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-lg">🐙</div>
+          <div>
+            <h2 class="text-base font-bold tracking-tight">Déploiement Automatique sur GitHub</h2>
+            <p class="text-xs text-slate-300">Créez le dépôt GitHub et poussez tout le code Next.js 14 + Supabase en 1 clic</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modal-github')" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+      <form id="form-github" class="p-6 space-y-5">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Nom du dépôt GitHub à créer <span class="text-rose-500">*</span></label>
+          <input id="gh-repo-name" type="text" required value="immopilot-afrique-saas" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Votre Token GitHub (Personal Access Token <code class="font-mono">ghp_...</code>) <span class="text-rose-500">*</span></label>
+          <input id="gh-token" type="password" required placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600" />
+          <p class="text-[11px] text-slate-500 mt-1.5">Créez un token sur <a href="https://github.com/settings/tokens/new?scopes=repo&description=ImmoPilot-Deploy" target="_blank" class="text-blue-700 font-semibold underline">github.com/settings/tokens/new (cocher "repo")</a> puis collez-le ici.</p>
+        </div>
+        <div id="gh-result-box" class="hidden p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1"></div>
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeModal('modal-github')" class="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600">Fermer</button>
+          <button type="submit" id="btn-submit-github" class="magnetic-btn bg-slate-900 hover:bg-blue-950 text-white text-xs font-semibold px-5 py-2.5 rounded-xl shadow-sm">🚀 Créer le dépôt & Pousser sur GitHub</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODE 2: AUTH LOGIN VIEW                                               -->
+  <!-- ===================================================================== -->
+  <div id="view-login" class="hidden min-h-[calc(100vh-37px)] flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-[#FAFBFC]">
+    <div class="sm:mx-auto sm:w-full sm:max-w-md">
+      <div class="flex justify-center">
+        <div class="w-12 h-12 rounded-2xl bg-blue-900 flex items-center justify-center text-white font-bold text-xl shadow-md">IP</div>
+      </div>
+      <h2 class="mt-5 text-center text-2xl font-extrabold text-slate-900 tracking-tight">Connexion à ImmoPilot Afrique</h2>
+      <p class="mt-2 text-center text-sm text-slate-500">Portail B2B de gestion locative & recouvrement sécurisé par Supabase RLS</p>
+    </div>
+    <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
+      <div class="card-surface py-8 px-6 shadow-sm sm:px-10">
+        <form id="form-login" class="space-y-5">
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">Adresse Email Professionnelle</label>
+            <input type="email" id="login-email" required value="direction@koffi-immo.ci" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-800" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">Mot de passe</label>
+            <input type="password" id="login-password" required value="••••••••••••" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-800" />
+          </div>
+          <div class="flex items-center justify-between text-xs">
+            <label class="flex items-center gap-2 text-slate-600"><input type="checkbox" checked class="rounded border-slate-300" /> Se souvenir de cette agence</label>
+            <span class="text-blue-800 font-semibold">Protection middleware.ts active</span>
+          </div>
+          <button type="submit" class="magnetic-btn w-full bg-blue-900 hover:bg-blue-950 text-white font-semibold py-2.5 rounded-lg text-sm shadow-sm">Se connecter au Dashboard</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODE 1: SAAS APPLICATION SHELL                                        -->
+  <!-- ===================================================================== -->
+  <div id="view-app" class="flex min-h-[calc(100vh-37px)]">
+    <aside class="w-64 bg-white border-r border-[#E5E7EB] flex flex-col justify-between shrink-0 select-none">
+      <div>
+        <div class="h-16 px-6 flex items-center gap-3 border-b border-[#E5E7EB]">
+          <div class="w-9 h-9 rounded-xl bg-blue-900 flex items-center justify-center text-white font-bold text-sm shadow-sm">IP</div>
+          <div>
+            <div class="font-bold text-sm text-slate-900 tracking-tight leading-none">ImmoPilot</div>
+            <div class="text-[11px] text-slate-500 font-medium mt-0.5">Gestion Locative Pro</div>
+          </div>
+        </div>
+        <div class="px-4 py-4">
+          <div class="px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Agence Connectée (RLS)</div>
+            <div id="sidebar-agency-name" class="text-xs font-bold text-slate-800 truncate mt-0.5">Koffi & Associés Immobilier</div>
+            <div class="text-[11px] text-slate-500 truncate">Abidjan • Cocody Ambassades</div>
+          </div>
+        </div>
+        <nav class="px-3 space-y-1">
+          <button type="button" onclick="switchTab('dashboard')" id="nav-dashboard" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-blue-50 text-blue-900 transition">
+            <span>📊</span><span>Tableau de bord</span>
+          </button>
+          <button type="button" onclick="switchTab('properties')" id="nav-properties" class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition">
+            <div class="flex items-center gap-3"><span>🏢</span><span>Propriétés</span></div>
+            <span id="badge-properties-count" class="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">4</span>
+          </button>
+          <button type="button" onclick="switchTab('tenants')" id="nav-tenants" class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition">
+            <div class="flex items-center gap-3"><span>👥</span><span>Locataires & Baux</span></div>
+            <span id="badge-tenants-count" class="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">6</span>
+          </button>
+          <button type="button" onclick="switchTab('rentroll')" id="nav-rentroll" class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition">
+            <div class="flex items-center gap-3"><span>💳</span><span>Collecte des Loyers</span></div>
+            <span class="text-[10px] font-mono font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">SMS + PDF</span>
+          </button>
+        </nav>
+      </div>
+      <div class="p-4 border-t border-[#E5E7EB] space-y-3">
+        <div class="p-3 rounded-xl bg-blue-950 text-white text-xs space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-blue-200">SMS / WhatsApp & SasPay</span>
+            <span class="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">ACTIF</span>
+          </div>
+          <p class="text-[11px] text-blue-200/80 leading-relaxed">Sender ID : <strong>IMMOPILOT</strong> • Relances SMS & Quittances PDF.</p>
+        </div>
+      </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-w-0">
+      <header class="h-16 bg-white border-b border-[#E5E7EB] px-8 flex items-center justify-between sticky top-[37px] z-30">
+        <div class="flex items-center gap-4 flex-1 max-w-md">
+          <div class="relative w-full">
+            <input id="global-search" oninput="handleGlobalSearch(this.value)" type="text" placeholder="Rechercher un locataire, un immeuble, un lot..." class="w-full pl-9 pr-4 py-2 text-sm bg-[#FAFBFC] border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-blue-800 focus:bg-white transition" />
+            <span class="absolute left-3 top-2.5 text-slate-400 text-xs">🔍</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">Période : <strong>Novembre 2026</strong></span>
+          <button type="button" onclick="openModal('modal-property')" class="magnetic-btn bg-white hover:bg-slate-50 text-slate-800 border border-[#E5E7EB] text-xs font-semibold px-3.5 py-2 rounded-lg">+ Propriété</button>
+          <button type="button" onclick="openModal('modal-lease')" class="magnetic-btn bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm">+ Nouveau Bail</button>
+        </div>
+      </header>
+
+      <main class="p-8 space-y-8 max-w-7xl w-full mx-auto">
+        <!-- TAB 1: DASHBOARD -->
+        <section id="tab-dashboard" class="space-y-8">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Tableau de bord financier</h1>
+              <p class="text-sm text-slate-500 mt-0.5">Vue consolidée en temps réel depuis Supabase PostgreSQL (Server Components)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="switchTab('rentroll')" class="magnetic-btn bg-blue-900 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm">Relances SMS, Encaissements & Quittances PDF →</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div class="card-surface p-5">
+              <div class="flex items-center justify-between"><span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Taux d'occupation</span><span class="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">+2.4%</span></div>
+              <div id="kpi-occupancy" class="text-3xl font-bold font-mono text-slate-900 mt-3">91.9%</div>
+              <div id="kpi-occupancy-sub" class="text-xs text-slate-500 mt-2">34 lots loués sur 37 unités</div>
+            </div>
+            <div class="card-surface p-5">
+              <div class="flex items-center justify-between"><span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Loyers Attendus</span><span class="text-xs font-mono text-slate-400">NOV. 2026</span></div>
+              <div id="kpi-expected" class="text-2xl font-bold font-mono text-slate-900 mt-3">4 150 000 FCFA</div>
+              <div class="text-xs text-slate-500 mt-2">6 baux actifs quittancés ce mois</div>
+            </div>
+            <div class="card-surface p-5">
+              <div class="flex items-center justify-between"><span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Loyers Encaissés</span><span id="kpi-collection-pct" class="text-xs font-semibold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">54% perçu</span></div>
+              <div id="kpi-collected" class="text-2xl font-bold font-mono text-emerald-700 mt-3">2 225 000 FCFA</div>
+              <div class="text-xs text-slate-500 mt-2">Via Wave, Orange Money & Virement</div>
+            </div>
+            <div class="card-surface p-5 border-rose-200/80 bg-rose-50/20">
+              <div class="flex items-center justify-between"><span class="text-xs font-semibold uppercase tracking-wider text-rose-700">Impayés & Retards</span><span class="text-xs font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">Action requise</span></div>
+              <div id="kpi-unpaid" class="text-2xl font-bold font-mono text-rose-600 mt-3">1 925 000 FCFA</div>
+              <div class="text-xs text-rose-700/80 mt-2">Relances SMS & SasPay prêtes</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 card-surface overflow-hidden">
+              <div class="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
+                <div><h2 class="font-bold text-slate-900 text-base">Derniers paiements & statut de quittancement</h2><p class="text-xs text-slate-500">Suivi en temps réel des règlements locataires</p></div>
+                <button type="button" onclick="switchTab('rentroll')" class="text-xs font-semibold text-blue-800 hover:underline">Tout voir →</button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead><tr class="border-b border-[#E5E7EB] bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500"><th class="py-3 px-5">Locataire</th><th class="py-3 px-4">Bien & Lot</th><th class="py-3 px-4">Échéance</th><th class="py-3 px-4 text-right">Montant</th><th class="py-3 px-5 text-right">Statut / Action</th></tr></thead>
+                  <tbody id="dashboard-payments-tbody" class="divide-y divide-[#E5E7EB] text-sm"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card-surface p-6 space-y-4">
+              <div class="flex items-center justify-between"><h2 class="font-bold text-slate-900 text-base">Alertes & Relances SMS</h2><span class="text-xs font-semibold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">Prioritaire</span></div>
+              <div id="dashboard-alerts-list" class="space-y-3"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: PROPERTIES -->
+        <section id="tab-properties" class="hidden space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div><h1 class="text-2xl font-bold text-slate-900 tracking-tight">Portefeuille des Propriétés</h1><p class="text-sm text-slate-500">Immeubles résidentiels, villas de maître et espaces commerciaux sous gestion</p></div>
+            <button type="button" onclick="openModal('modal-property')" class="magnetic-btn bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm">+ Ajouter une propriété</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" onclick="filterProperties('ALL')" id="prop-filter-ALL" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-900 text-white">Tous les biens</button>
+            <button type="button" onclick="filterProperties('Immeuble résidentiel')" id="prop-filter-Immeuble" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50">Immeubles résidentiels</button>
+            <button type="button" onclick="filterProperties('Villa')" id="prop-filter-Villa" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50">Villas</button>
+            <button type="button" onclick="filterProperties('Bureaux & Commerces')" id="prop-filter-Bureaux" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50">Bureaux & Commerces</button>
+          </div>
+          <div id="properties-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+        </section>
+
+        <!-- TAB 3: TENANTS & LEASES -->
+        <section id="tab-tenants" class="hidden space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div><h1 class="text-2xl font-bold text-slate-900 tracking-tight">Dossiers Locataires, Baux & Cautions</h1><p class="text-sm text-slate-500">Cliquez sur un locataire pour ouvrir son panneau latéral (Contrat, Caution, Historique)</p></div>
+            <button type="button" onclick="openModal('modal-lease')" class="magnetic-btn bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm">+ Nouveau locataire & bail</button>
+          </div>
+          <div class="card-surface overflow-hidden">
+            <table class="w-full text-left border-collapse">
+              <thead><tr class="border-b border-[#E5E7EB] bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500"><th class="py-3.5 px-6">Locataire & Contact</th><th class="py-3.5 px-4">Propriété & Unité</th><th class="py-3.5 px-4 text-right">Loyer Mensuel</th><th class="py-3.5 px-4 text-right">Caution Déposée</th><th class="py-3.5 px-4">Statut du Mois</th><th class="py-3.5 px-6 text-right">Dossier</th></tr></thead>
+              <tbody id="tenants-tbody" class="divide-y divide-[#E5E7EB] text-sm"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- TAB 4: RENT ROLL & SASPAY + SMS REMINDER + CRON + PDF QUITTANCE -->
+        <section id="tab-rentroll" class="hidden space-y-6">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Collecte des Loyers, Relances SMS & Quittances PDF</h1>
+              <p class="text-sm text-slate-500">Relancez vos locataires par SMS/WhatsApp en 1 clic, encaissez via SasPay et téléchargez la Quittance PDF</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2.5">
+              <select id="cron-period-select" class="px-3 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600">
+                <option value="Novembre 2026">Période : Novembre 2026</option>
+                <option value="Décembre 2026" selected>Période : Décembre 2026 (Prochain mois)</option>
+                <option value="Janvier 2027">Période : Janvier 2027</option>
+              </select>
+              <button type="button" id="btn-trigger-cron" onclick="triggerMonthlyRentCron()" class="magnetic-btn inline-flex items-center gap-2 bg-slate-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm disabled:opacity-60">
+                <svg id="spinner-cron" class="hidden w-3.5 h-3.5 animate-spin text-blue-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span id="label-cron">⚡ Générer les factures du mois (Cron 1er du mois)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-blue-50/70 border border-blue-200/80 rounded-xl px-4 py-3 text-xs text-blue-950">
+            <div class="flex items-center gap-2">
+              <span class="font-bold bg-blue-900 text-white px-2 py-0.5 rounded font-mono text-[11px]">PASSERELLE SMS & WHATSAPP</span>
+              <span>Cliquez sur <strong>« 💬 Relancer par SMS »</strong> sur un loyer en attente ou en retard pour expédier un rappel formaté avec lien sécurisé SasPay.</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="filterRentRoll('ALL')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-900 text-white">Tous</button>
+              <button type="button" onclick="filterRentRoll('PAID')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">Payés (Quittance PDF)</button>
+              <button type="button" onclick="filterRentRoll('PARTIAL')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">Partiels (Relance SMS)</button>
+              <button type="button" onclick="filterRentRoll('UNPAID')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-200">En attente / Impayés (Relance SMS)</button>
+            </div>
+          </div>
+
+          <div class="card-surface overflow-hidden">
+            <table class="w-full text-left border-collapse">
+              <thead><tr class="border-b border-[#E5E7EB] bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500"><th class="py-3.5 px-6">Locataire</th><th class="py-3.5 px-4">Bien & Lot</th><th class="py-3.5 px-4">Période</th><th class="py-3.5 px-4 text-right">Loyer Attendu</th><th class="py-3.5 px-4 text-right">Déjà Perçu</th><th class="py-3.5 px-4">Statut</th><th class="py-3.5 px-6 text-right">Actions (Relance SMS / SasPay / PDF)</th></tr></thead>
+              <tbody id="rentroll-tbody" class="divide-y divide-[#E5E7EB] text-sm"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODE 3: MARKETING LANDING PAGE                                        -->
+  <!-- ===================================================================== -->
+  <div id="view-landing" class="hidden">
+    <header class="bg-white/90 backdrop-blur border-b border-[#E5E7EB] sticky top-[37px] z-40">
+      <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-2.5"><div class="w-9 h-9 rounded-xl bg-blue-900 flex items-center justify-center text-white font-bold text-sm">IP</div><span class="font-bold text-slate-900 tracking-tight">ImmoPilot Afrique</span></div>
+        <div class="flex items-center gap-3">
+          <button type="button" onclick="switchMode('login')" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2">Se connecter</button>
+          <button type="button" onclick="switchMode('app')" class="magnetic-btn bg-blue-900 text-white text-xs font-semibold px-4 py-2.5 rounded-lg">Ouvrir le Dashboard Live →</button>
+        </div>
+      </div>
+    </header>
+    <section class="py-20 px-6 max-w-6xl mx-auto text-center">
+      <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold mb-6">🌍 Conçu pour les Agences & Bailleurs en Afrique Francophone (Zone UEMOA & CEMAC)</div>
+      <h1 class="text-4xl sm:text-6xl font-extrabold text-slate-900 tracking-tight max-w-4xl mx-auto leading-[1.12]">Automatisez votre gestion locative et encaissez vos loyers <span class="text-blue-900">sans effort.</span></h1>
+      <p class="text-lg text-slate-600 max-w-2xl mx-auto mt-6 leading-relaxed">Divisez vos impayés par 3 grâce aux relances SMS/WhatsApp automatiques, aux liens Mobile Money (SasPay) et aux quittances PDF conformes.</p>
+      <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
+        <button type="button" onclick="switchMode('app')" class="magnetic-btn bg-blue-900 hover:bg-blue-950 text-white font-semibold px-7 py-3.5 rounded-xl text-sm shadow-md">Accéder à la Démo Interactive →</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- SLIDE-OVER PANEL: TENANT DOSSIER                                      -->
+  <!-- ===================================================================== -->
+  <div id="tenant-slideover" class="hidden fixed inset-0 z-50 overflow-hidden">
+    <div onclick="closeSlideOver()" class="fixed inset-0 slide-over-backdrop transition-opacity"></div>
+    <div class="fixed inset-y-0 right-0 max-w-full flex pl-10">
+      <div class="w-screen max-w-md bg-white shadow-2xl border-l border-[#E5E7EB] flex flex-col justify-between overflow-y-auto">
+        <div class="p-6 space-y-6">
+          <div class="flex items-start justify-between border-b border-[#E5E7EB] pb-4">
+            <div>
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-blue-800 bg-blue-50 px-2.5 py-0.5 rounded-full">Dossier Locataire & Bail</span>
+              <h3 id="so-tenant-name" class="text-xl font-bold text-slate-900 mt-2">Amadou Koné</h3>
+              <p id="so-tenant-employer" class="text-xs text-slate-500">Cadre — Banque Atlantique CI</p>
+            </div>
+            <button type="button" onclick="closeSlideOver()" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">✕</button>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200"><div class="text-[11px] text-slate-400 font-semibold uppercase">Loyer Mensuel</div><div id="so-rent" class="text-base font-bold font-mono text-slate-900 mt-1">350 000 FCFA</div></div>
+            <div class="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200"><div class="text-[11px] text-emerald-700 font-semibold uppercase">Caution Versée</div><div id="so-deposit" class="text-base font-bold font-mono text-emerald-800 mt-1">700 000 FCFA</div></div>
+          </div>
+          <div class="space-y-2.5 text-sm border-t border-[#E5E7EB] pt-4">
+            <div class="flex justify-between"><span class="text-slate-500">Bien occupé :</span><span id="so-property" class="font-semibold text-slate-900">Résidence Les Orchidées</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Unité / Lot :</span><span id="so-unit" class="font-mono font-semibold text-slate-800">Appartement A1</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Téléphone :</span><span id="so-phone" class="font-mono text-slate-800">+225 07 08 11 22 33</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Début du bail :</span><span id="so-start" class="font-mono text-slate-800">01/01/2025</span></div>
+          </div>
+        </div>
+        <div class="p-6 border-t border-[#E5E7EB] bg-slate-50 flex items-center justify-between gap-3">
+          <button type="button" onclick="closeSlideOver()" class="px-4 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700">Fermer</button>
+          <button type="button" id="so-pay-btn" class="magnetic-btn flex-1 bg-blue-900 text-white text-xs font-semibold py-2.5 px-4 rounded-lg">Action Quittance / Paiement</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- REDESIGNED MODAL 1: AJOUTER UNE PROPRIÉTÉ                             -->
+  <!-- ===================================================================== -->
+  <div id="modal-property" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 slide-over-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden max-w-2xl w-full mx-auto my-8">
+      <div class="px-6 py-5 sm:px-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div class="flex items-center gap-3.5">
+          <div class="w-10 h-10 rounded-xl bg-blue-950 text-white flex items-center justify-center shadow-sm">🏢</div>
+          <div>
+            <h2 class="text-lg font-bold text-slate-900 tracking-tight">Ajouter une Propriété</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Server Action <code class="font-mono text-blue-900">createProperty(formData)</code> + Supabase RLS</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modal-property')" class="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">✕</button>
+      </div>
+      <form id="form-property" class="p-6 sm:p-8 space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="md:col-span-2">
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Nom de l'Immeuble <span class="text-rose-500">*</span></label>
+            <input id="prop-name" required type="text" placeholder="Ex: Résidence Les Flamboyants — Cocody Ambassades" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-all" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Catégorie d'Actif <span class="text-rose-500">*</span></label>
+            <select id="prop-category" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-all">
+              <option value="Immeuble résidentiel">Immeuble résidentiel</option>
+              <option value="Villa">Villa de maître / Duplex</option>
+              <option value="Bureaux & Commerces">Bureaux & Commerces</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Nombre d'Unités (Lots) <span class="text-rose-500">*</span></label>
+            <input id="prop-units" required type="number" min="1" value="8" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white px-4 py-3 text-sm font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-all" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Adresse & Quartier <span class="text-rose-500">*</span></label>
+            <input id="prop-address" required type="text" placeholder="Ex: Rue des Jardins, Cocody Vallon, Abidjan" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-all" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Revenu Mensuel Généré (FCFA) <span class="text-rose-500">*</span></label>
+            <input id="prop-revenue" required type="number" step="5000" value="2400000" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white px-4 py-3 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-all" />
+          </div>
+        </div>
+        <div class="pt-5 border-t border-slate-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeModal('modal-property')" class="px-5 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Annuler</button>
+          <button type="submit" id="btn-submit-property" class="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#0F172A] hover:bg-[#1E3A8A] shadow-sm transition-all disabled:opacity-60">
+            <svg id="spinner-property" class="hidden w-4 h-4 animate-spin text-blue-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span id="label-submit-property">Créer la propriété</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- REDESIGNED MODAL 2: NOUVEAU LOCATAIRE & CONTRAT DE BAIL               -->
+  <!-- ===================================================================== -->
+  <div id="modal-lease" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 slide-over-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl w-full mx-auto my-8">
+      <div class="px-6 py-5 sm:px-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div class="flex items-center gap-3.5">
+          <div class="w-10 h-10 rounded-xl bg-blue-950 text-white flex items-center justify-center shadow-sm">👤</div>
+          <div>
+            <h2 class="text-lg font-bold text-slate-900 tracking-tight">Nouveau Dossier Locataire & Contrat de Bail</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Server Action <code class="font-mono text-blue-900">createTenantAndLease(formData)</code> + Supabase RLS</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modal-lease')" class="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">✕</button>
+      </div>
+      <form id="form-lease" class="p-6 sm:p-8 space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Nom Complet du Locataire *</label><input id="lease-tenant-name" required type="text" placeholder="Ex: Fatou Bamba" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm" /></div>
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Téléphone *</label><input id="lease-tenant-phone" required type="text" placeholder="+225 07 09 44 55 66" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-mono" /></div>
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Propriété Concernée *</label><select id="lease-property-id" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-medium"></select></div>
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Référence Unité / Lot *</label><input id="lease-unit-number" required type="text" placeholder="Ex: Appartement B4" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm" /></div>
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Loyer Mensuel (FCFA) *</label><input id="lease-rent" required type="number" step="5000" value="350000" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-mono font-bold" /></div>
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Caution / Garantie (FCFA) *</label><input id="lease-deposit" required type="number" step="5000" value="700000" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-mono font-bold" /></div>
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Profession / Employeur</label><input id="lease-employer" type="text" placeholder="Ex: Cadre Orange CI" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm" /></div>
+          <div><label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Date d'entrée *</label><input id="lease-start" type="date" value="2026-11-01" class="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-mono" /></div>
+        </div>
+        <div class="pt-5 border-t border-slate-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeModal('modal-lease')" class="px-5 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Annuler</button>
+          <button type="submit" id="btn-submit-lease" class="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#0F172A] hover:bg-[#1E3A8A] shadow-sm transition-all disabled:opacity-60">
+            <svg id="spinner-lease" class="hidden w-4 h-4 animate-spin text-emerald-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span id="label-submit-lease">Créer le Bail</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 3: SASPAY MOBILE MONEY CHECKOUT LINK -->
+  <div id="modal-saspay" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 slide-over-backdrop">
+    <div class="card-surface w-full max-w-md p-6 space-y-5 shadow-2xl border-t-4 border-t-blue-900">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2.5"><span class="w-8 h-8 rounded-lg bg-blue-900 text-white font-bold text-xs flex items-center justify-center">SP</span><div><h3 class="text-base font-bold text-slate-900">Passerelle SasPay Mobile Money</h3><p class="text-[11px] text-slate-500">Server Action + SMS Confirmation Automatique</p></div></div>
+        <button type="button" onclick="closeModal('modal-saspay')" class="text-slate-400 hover:text-slate-700 font-bold">✕</button>
+      </div>
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+        <div class="flex justify-between"><span class="text-slate-500">Locataire :</span><span id="sp-tenant" class="font-bold text-slate-900"></span></div>
+        <div class="flex justify-between"><span class="text-slate-500">Lot & Période :</span><span id="sp-unit" class="font-semibold text-slate-700"></span></div>
+        <div class="flex justify-between items-baseline pt-2 border-t border-slate-200"><span class="text-slate-500 font-semibold">Reste à payer :</span><span id="sp-amount" class="text-lg font-bold font-mono text-blue-900"></span></div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold uppercase text-slate-500 mb-2">Canal Mobile Money (Webhook SasPay)</label>
+        <div class="grid grid-cols-3 gap-2 text-xs font-semibold">
+          <button type="button" onclick="selectChannel('Wave')" id="chan-Wave" class="py-2.5 px-3 rounded-lg border-2 border-blue-900 bg-blue-50 text-blue-900">🌊 Wave CI</button>
+          <button type="button" onclick="selectChannel('Orange Money')" id="chan-Orange" class="py-2.5 px-3 rounded-lg border border-slate-200 text-slate-700">🟠 Orange Money</button>
+          <button type="button" onclick="selectChannel('MTN MoMo')" id="chan-MTN" class="py-2.5 px-3 rounded-lg border border-slate-200 text-slate-700">🟡 MTN MoMo</button>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="closeModal('modal-saspay')" class="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700">Fermer</button>
+        <button type="button" id="sp-confirm-btn" onclick="confirmSasPayPayment()" class="magnetic-btn bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-5 py-2.5 rounded-lg shadow-sm">Simuler Webhook SasPay + SMS ✓</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "https://ylcotthjwikggxytolol.supabase.co/functions/v1/simcity-immo";
+    let APP_STATE = { properties: [], tenants: [], leases: [], payments: [], kpis: {} };
+    let CURRENT_PROP_FILTER = "ALL";
+    let CURRENT_RENT_FILTER = "ALL";
+    let SELECTED_PAYMENT_ID = null;
+    let SELECTED_CHANNEL = "Wave";
+
+    function showToast(type, title, subtitle) {
+      const container = document.getElementById("sonner-toaster");
+      if (!container) return;
+      const toastEl = document.createElement("div");
+      const isSuccess = type === "success";
+      toastEl.className = "sonner-toast pointer-events-auto flex items-start gap-3 p-4 rounded-xl shadow-lg border " +
+        (isSuccess ? "bg-emerald-950 text-white border-emerald-800" : "bg-rose-950 text-white border-rose-800");
+      toastEl.innerHTML =
+        '<div class="mt-0.5 shrink-0 w-5 h-5 rounded-full flex items-center justify-center ' + (isSuccess ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400") + '">' +
+          (isSuccess ? "✓" : "!") +
+        '</div>' +
+        '<div class="flex-1 min-w-0">' +
+          '<div class="text-xs font-bold tracking-tight">' + title + '</div>' +
+          (subtitle ? '<div class="text-[11px] opacity-90 mt-1 leading-relaxed">' + subtitle + '</div>' : "") +
+        '</div>';
+      container.appendChild(toastEl);
+      setTimeout(function() {
+        if (toastEl.parentNode) toastEl.remove();
+      }, 6000);
+    }
+
+    function formatFCFA(amount) {
+      const num = Math.round(Number(amount || 0));
+      return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " FCFA";
+    }
+
+    function statusBadge(status) {
+      if (status === "PAID") return '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Payé</span>';
+      if (status === "PARTIAL") return '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>Partiel</span>';
+      return '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>En attente</span>';
+    }
+
+    async function sendSmsReminder(paymentId, btnEl) {
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = "⏳ Envoi SMS...";
+      }
+      try {
+        const res = await fetch(API_BASE + "/api/send-sms-reminder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ payment_id: paymentId })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Échec de l'envoi du SMS.");
+        }
+        showToast(
+          "success",
+          "SMS envoyé à " + data.tenant_name + " (" + data.phone + ")",
+          "« " + data.sms_body + " »"
+        );
+      } catch (err) {
+        showToast("error", "Erreur passerelle SMS", err.message || "Impossible d'envoyer le SMS.");
+      } finally {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = "💬 Relancer par SMS";
+        }
+      }
+    }
+
+    function downloadQuittancePDF(paymentId) {
+      const p = (APP_STATE.payments || []).find(function(item) { return item.id === paymentId; });
+      if (!p) return;
+      if (!window.jspdf || !window.jspdf.jsPDF) {
+        showToast("error", "Librairie jsPDF en cours de chargement", "Veuillez réessayer dans une seconde.");
+        return;
+      }
+      const doc = new window.jspdf.jsPDF();
+      const agencyName = (APP_STATE.agency && APP_STATE.agency.name) ? APP_STATE.agency.name : "Koffi & Associés Immobilier";
+      const receiptRef = p.receipt_number || ("QUIT-" + (p.period_label || "NOV2026").replace(/\s+/g, "-").toUpperCase() + "-" + String(p.id).slice(-4).toUpperCase());
+      const issueDate = new Date().toLocaleDateString("fr-FR");
+      const baseRent = Number(p.paid_amount || p.expected_amount || 0);
+      const charges = 0;
+      const totalPaid = baseRent + charges;
+
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 42, "F");
+      doc.setFillColor(30, 58, 138);
+      doc.roundedRect(15, 9, 22, 22, 4, 4, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("IP", 22, 23);
+      doc.setFontSize(15);
+      doc.text(agencyName.toUpperCase(), 42, 16);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(203, 213, 225);
+      doc.text("Siège social : Boulevard Latrille, Cocody Ambassades — Abidjan, Côte d'Ivoire", 42, 23);
+      doc.text("Contact : +225 27 22 44 88 00  |  direction@koffi-immo.ci  |  RCCM CI-ABJ-2026-B-1492", 42, 29);
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(15, 50, 180, 24, 3, 3, "FD");
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("QUITTANCE DE LOYER", 22, 62);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text("Loyer du mois de " + (p.period_label || "Novembre 2026"), 22, 69);
+
+      doc.setFont("courier", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(30, 58, 138);
+      doc.text("Réf : " + receiptRef, 140, 60);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
+      doc.text("Émise le : " + issueDate, 140, 68);
+
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, 82, 87, 42, 3, 3, "S");
+      doc.roundedRect(108, 82, 87, 42, 3, 3, "S");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text("LOCATAIRE TITULAIRE DU BAIL", 20, 91);
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(p.tenant_name || "Locataire"), 20, 101);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text("Statut : Quittance acquittée", 20, 109);
+      doc.text("Canal : " + String(p.payment_method || "Mobile Money SasPay"), 20, 116);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text("ADRESSE DU BIEN LOUÉ (UNITÉ / LOT)", 113, 91);
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(p.property_name || "Immeuble"), 113, 101);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.setTextColor(30, 58, 138);
+      doc.text("Lot / Appartement : " + String(p.unit_number || "Lot"), 113, 109);
+      doc.setTextColor(71, 85, 105);
+      doc.text("Abidjan — Côte d'Ivoire", 113, 116);
+
+      doc.setFillColor(241, 245, 249);
+      doc.rect(15, 134, 180, 10, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text("DÉSIGNATION DES SOMMES QUITTANCÉES", 20, 140.5);
+      doc.text("MONTANT (FCFA)", 152, 140.5);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(30, 41, 59);
+      doc.text("Loyer mensuel de base — Période : " + (p.period_label || "Novembre 2026"), 20, 153);
+      doc.setFont("courier", "bold");
+      doc.text(formatFCFA(baseRent), 152, 153);
+      doc.line(15, 158, 195, 158);
+
+      doc.setFont("helvetica", "normal");
+      doc.text("Provisions sur charges locatives (Entretien, Gardiennage, Eau commune)", 20, 167);
+      doc.setFont("courier", "normal");
+      doc.text("0 FCFA (Incluses)", 152, 167);
+      doc.line(15, 172, 195, 172);
+
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(15, 178, 180, 16, 2, 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("TOTAL PAYÉ REÇU POUR SOLDE DE LOYER", 20, 188);
+      doc.setFont("courier", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(110, 231, 183);
+      doc.text(formatFCFA(totalPaid), 145, 188);
+
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(120, 206, 75, 36, 3, 3, "S");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text("POUR ACQUIT — CACHET & SIGNATURE", 125, 214);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor(30, 58, 138);
+      doc.text(agencyName, 125, 224);
+      doc.setFont("courier", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(16, 185, 129);
+      doc.text("[ CACHET NUMÉRIQUE CERTIFIÉ ]", 125, 234);
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 256, 195, 256);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text("Mentions légales : Quittance délivrée sous réserve d'encaissement de tous chèques ou virements.", 15, 263);
+      doc.text("Ce reçu annule tous les reçus précédents. Document généré électroniquement par ImmoPilot Afrique.", 15, 269);
+
+      const cleanName = String(p.tenant_name || "Locataire").replace(/[^a-zA-Z0-9]/g, "_");
+      const cleanPeriod = String(p.period_label || "Novembre_2026").replace(/\s+/g, "_");
+      doc.save("Quittance_" + cleanName + "_" + cleanPeriod + ".pdf");
+      showToast("success", "Quittance PDF téléchargée !", "Quittance_" + cleanName + "_" + cleanPeriod + ".pdf générée avec succès.");
+    }
+
+    async function triggerMonthlyRentCron() {
+      const btn = document.getElementById("btn-trigger-cron");
+      const spinner = document.getElementById("spinner-cron");
+      const label = document.getElementById("label-cron");
+      const periodSelect = document.getElementById("cron-period-select");
+      const targetPeriod = periodSelect ? periodSelect.value : "Décembre 2026";
+
+      btn.disabled = true;
+      spinner.classList.remove("hidden");
+      label.textContent = "Exécution du Cron en cours...";
+
+      try {
+        const res = await fetch(API_BASE + "/api/cron/generate-rents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ period_label: targetPeriod })
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || "Erreur lors de la génération automatique des loyers.");
+        }
+        await loadState();
+        if (data.invoices_created > 0) {
+          showToast(
+            "success",
+            "Cron 1er du mois exécuté (" + data.period + ") !",
+            data.invoices_created + " facture(s) de loyer créée(s) avec le statut « En attente » (" + data.skipped_duplicates + " doublon ignoré)."
+          );
+        } else {
+          showToast(
+            "success",
+            "Protection anti-doublon active (" + data.period + ")",
+            "0 nouvelle facture créée : les " + data.skipped_duplicates + " baux actifs ont déjà leur facture pour " + data.period + "."
+          );
+        }
+      } catch (err) {
+        showToast("error", "Échec du Cron Job", err.message || "Erreur réseau");
+      } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+        label.textContent = "⚡ Générer les factures du mois (Cron 1er du mois)";
+      }
+    }
+
+    function renderAll() {
+      const k = APP_STATE.kpis || {};
+      document.getElementById("kpi-occupancy").textContent = (k.occupancy_rate || 91.9) + "%";
+      document.getElementById("kpi-occupancy-sub").textContent = (k.occupied_units || 34) + " lots loués sur " + (k.total_units || 37) + " unités";
+      document.getElementById("kpi-expected").textContent = formatFCFA(k.expected_rent || 0);
+      document.getElementById("kpi-collected").textContent = formatFCFA(k.collected_rent || 0);
+      document.getElementById("kpi-unpaid").textContent = formatFCFA(k.unpaid_rent || 0);
+      const pct = k.expected_rent > 0 ? Math.round((k.collected_rent / k.expected_rent) * 100) : 100;
+      document.getElementById("kpi-collection-pct").textContent = pct + "% perçu";
+
+      document.getElementById("badge-properties-count").textContent = (APP_STATE.properties || []).length;
+      document.getElementById("badge-tenants-count").textContent = (APP_STATE.leases || []).length;
+
+      const dashTbody = document.getElementById("dashboard-payments-tbody");
+      dashTbody.innerHTML = (APP_STATE.payments || []).slice(0, 8).map(function(p) {
+        const actionHtml = p.status === "PAID"
+          ? '<button type="button" data-quittance-id="' + p.id + '" class="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded">📥 Quittance PDF</button>'
+          : '<button type="button" data-sms-id="' + p.id + '" class="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded">💬 Relancer par SMS</button>';
+        return '<tr class="hover:bg-slate-50/80 transition">' +
+          '<td class="py-3.5 px-5 font-semibold text-slate-900">' + p.tenant_name + '</td>' +
+          '<td class="py-3.5 px-4 text-slate-600 text-xs">' + p.property_name + ' • <span class="font-mono font-semibold text-slate-800">' + p.unit_number + '</span></td>' +
+          '<td class="py-3.5 px-4 font-mono text-xs text-slate-500">' + (p.period_label || p.due_date) + '</td>' +
+          '<td class="py-3.5 px-4 text-right font-mono font-semibold text-slate-900">' + formatFCFA(p.expected_amount) + '</td>' +
+          '<td class="py-3.5 px-5 text-right flex flex-col items-end">' + statusBadge(p.status) + actionHtml + '</td>' +
+        '</tr>';
+      }).join("");
+
+      const unpaidList = (APP_STATE.payments || []).filter(function(p) { return p.status !== "PAID"; });
+      const alertsEl = document.getElementById("dashboard-alerts-list");
+      alertsEl.innerHTML = unpaidList.map(function(p) {
+        const rem = Number(p.expected_amount) - Number(p.paid_amount || 0);
+        return '<div class="p-3.5 rounded-xl border border-rose-200 bg-rose-50/40 flex items-center justify-between gap-2">' +
+          '<div>' +
+            '<div class="text-xs font-bold text-slate-900">' + p.tenant_name + ' (' + p.unit_number + ')</div>' +
+            '<div class="text-[11px] text-rose-700 font-mono font-semibold mt-0.5">Reste dû (' + (p.period_label || "") + ') : ' + formatFCFA(rem) + '</div>' +
+          '</div>' +
+          '<div class="flex items-center gap-1.5 shrink-0">' +
+            '<button type="button" data-sms-id="' + p.id + '" class="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg">💬 SMS</button>' +
+            '<button type="button" data-saspay-id="' + p.id + '" class="bg-blue-900 hover:bg-blue-950 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-lg">📲 SasPay</button>' +
+          '</div>' +
+        '</div>';
+      }).join("") || '<div class="p-4 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold">🎉 Aucun impayé en cours ! Tous les loyers sont encaissés.</div>';
+
+      renderPropertiesGrid();
+      renderTenantsTable();
+      renderRentRollTable();
+
+      const sel = document.getElementById("lease-property-id");
+      if (sel) {
+        sel.innerHTML = (APP_STATE.properties || []).map(function(pr) {
+          return '<option value="' + pr.id + '">' + pr.name + '</option>';
+        }).join("");
+      }
+    }
+
+    function renderPropertiesGrid() {
+      const grid = document.getElementById("properties-grid");
+      const list = (APP_STATE.properties || []).filter(function(p) {
+        return CURRENT_PROP_FILTER === "ALL" || p.category === CURRENT_PROP_FILTER;
+      });
+      grid.innerHTML = list.map(function(p) {
+        const occPct = p.total_units > 0 ? Math.round((p.occupied_units / p.total_units) * 100) : 100;
+        return '<div class="card-surface overflow-hidden flex flex-col justify-between group hover:border-blue-800/50 transition">' +
+          '<div>' +
+            '<div class="h-44 bg-slate-200 relative overflow-hidden">' +
+              '<img src="' + (p.image_url || "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=900&q=80") + '" class="w-full h-full object-cover group-hover:scale-105 transition duration-500" />' +
+              '<span class="absolute top-3 left-3 bg-slate-900/80 backdrop-blur text-white text-[11px] font-semibold px-2.5 py-1 rounded-md">' + p.category + '</span>' +
+              '<span class="absolute top-3 right-3 bg-white/95 text-slate-900 font-mono text-xs font-bold px-2.5 py-1 rounded-md shadow-sm">' + occPct + '% occupé</span>' +
+            '</div>' +
+            '<div class="p-5">' +
+              '<h3 class="font-bold text-slate-900 text-base">' + p.name + '</h3>' +
+              '<p class="text-xs text-slate-500 mt-0.5">📍 ' + p.address + '</p>' +
+              '<div class="mt-4 pt-4 border-t border-[#E5E7EB] flex items-center justify-between text-xs">' +
+                '<div><span class="text-slate-400 block uppercase text-[10px] font-semibold">Occupation</span><span class="font-mono font-bold text-slate-800">' + p.occupied_units + ' / ' + p.total_units + ' unités</span></div>' +
+                '<div class="text-right"><span class="text-slate-400 block uppercase text-[10px] font-semibold">Revenu Mensuel</span><span class="font-mono font-bold text-blue-900">' + formatFCFA(p.monthly_revenue) + '</span></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join("");
+    }
+
+    function renderTenantsTable() {
+      const tbody = document.getElementById("tenants-tbody");
+      const leases = APP_STATE.leases || [];
+      tbody.innerHTML = leases.map(function(l) {
+        const tenant = (APP_STATE.tenants || []).find(function(t) { return t.id === l.tenant_id; }) || { full_name: "Locataire", phone: "+225 07 00 00 00", employer: "Particulier" };
+        const prop = (APP_STATE.properties || []).find(function(p) { return p.id === l.property_id; }) || { name: "Immeuble" };
+        const unit = (APP_STATE.units || []).find(function(u) { return u.id === l.unit_id; }) || { unit_number: "Lot" };
+        const payment = (APP_STATE.payments || []).find(function(pm) { return pm.lease_id === l.id; }) || { status: "PAID", id: "" };
+        return '<tr data-lease-id="' + l.id + '" class="hover:bg-blue-50/40 cursor-pointer transition">' +
+          '<td class="py-4 px-6"><div class="font-bold text-slate-900">' + tenant.full_name + '</div><div class="text-xs text-slate-500 font-mono">' + tenant.phone + '</div></td>' +
+          '<td class="py-4 px-4"><div class="font-semibold text-slate-800 text-xs">' + prop.name + '</div><div class="text-xs font-mono text-slate-500">' + unit.unit_number + '</div></td>' +
+          '<td class="py-4 px-4 text-right font-mono font-bold text-slate-900">' + formatFCFA(l.monthly_rent) + '</td>' +
+          '<td class="py-4 px-4 text-right"><span class="font-mono font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md text-xs">' + formatFCFA(l.deposit_amount) + '</span></td>' +
+          '<td class="py-4 px-4">' + statusBadge(payment.status) + '</td>' +
+          '<td class="py-4 px-6 text-right"><span class="text-xs font-semibold text-blue-900 hover:underline">Voir bail →</span></td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderRentRollTable() {
+      const tbody = document.getElementById("rentroll-tbody");
+      const list = (APP_STATE.payments || []).filter(function(p) {
+        return CURRENT_RENT_FILTER === "ALL" || p.status === CURRENT_RENT_FILTER;
+      });
+      tbody.innerHTML = list.map(function(p) {
+        const actionBtn = p.status === "PAID"
+          ? '<button type="button" data-quittance-id="' + p.id + '" class="magnetic-btn inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-lg shadow-sm">📥 Télécharger Quittance PDF</button>'
+          : '<div class="inline-flex items-center justify-end gap-2">' +
+              '<button type="button" data-sms-id="' + p.id + '" class="magnetic-btn inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm disabled:opacity-50">💬 Relancer par SMS</button>' +
+              '<button type="button" data-saspay-id="' + p.id + '" class="magnetic-btn bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg shadow-sm">📲 Lien SasPay</button>' +
+            '</div>';
+        return '<tr class="hover:bg-slate-50/80 transition">' +
+          '<td class="py-4 px-6 font-bold text-slate-900">' + p.tenant_name + '</td>' +
+          '<td class="py-4 px-4 text-xs text-slate-600">' + p.property_name + ' • <span class="font-mono font-semibold text-slate-900">' + p.unit_number + '</span></td>' +
+          '<td class="py-4 px-4 font-mono text-xs font-semibold text-slate-700">' + (p.period_label || "Novembre 2026") + '</td>' +
+          '<td class="py-4 px-4 text-right font-mono font-bold text-slate-900">' + formatFCFA(p.expected_amount) + '</td>' +
+          '<td class="py-4 px-4 text-right font-mono font-semibold text-emerald-700">' + formatFCFA(p.paid_amount) + '</td>' +
+          '<td class="py-4 px-4">' + statusBadge(p.status) + '</td>' +
+          '<td class="py-4 px-6 text-right">' + actionBtn + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    document.addEventListener("click", function(e) {
+      const smsBtn = e.target.closest("[data-sms-id]");
+      if (smsBtn) {
+        e.stopPropagation();
+        sendSmsReminder(smsBtn.getAttribute("data-sms-id"), smsBtn);
+        return;
+      }
+      const qBtn = e.target.closest("[data-quittance-id]");
+      if (qBtn) {
+        e.stopPropagation();
+        downloadQuittancePDF(qBtn.getAttribute("data-quittance-id"));
+        return;
+      }
+      const sBtn = e.target.closest("[data-saspay-id]");
+      if (sBtn) {
+        e.stopPropagation();
+        openSasPayModal(sBtn.getAttribute("data-saspay-id"));
+        return;
+      }
+      const leaseRow = e.target.closest("[data-lease-id]");
+      if (leaseRow) {
+        openSlideOver(leaseRow.getAttribute("data-lease-id"));
+      }
+    });
+
+    function switchTab(tab) {
+      ["dashboard", "properties", "tenants", "rentroll"].forEach(function(t) {
+        document.getElementById("tab-" + t).classList.toggle("hidden", t !== tab);
+        const btn = document.getElementById("nav-" + t);
+        if (btn) {
+          btn.className = t === tab
+            ? "w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-semibold bg-blue-50 text-blue-900 transition"
+            : "w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition";
+        }
+      });
+    }
+
+    function switchMode(mode) {
+      document.getElementById("view-app").classList.toggle("hidden", mode !== "app");
+      document.getElementById("view-login").classList.toggle("hidden", mode !== "login");
+      document.getElementById("view-landing").classList.toggle("hidden", mode !== "landing");
+    }
+
+    function filterProperties(cat) {
+      CURRENT_PROP_FILTER = cat;
+      renderPropertiesGrid();
+    }
+
+    function filterRentRoll(status) {
+      CURRENT_RENT_FILTER = status;
+      renderRentRollTable();
+    }
+
+    function handleGlobalSearch(q) {
+      const query = (q || "").toLowerCase().trim();
+      if (!query) { renderAll(); return; }
+      switchTab("rentroll");
+      const tbody = document.getElementById("rentroll-tbody");
+      const filtered = (APP_STATE.payments || []).filter(function(p) {
+        return (p.tenant_name || "").toLowerCase().includes(query) ||
+               (p.property_name || "").toLowerCase().includes(query) ||
+               (p.unit_number || "").toLowerCase().includes(query);
+      });
+      tbody.innerHTML = filtered.map(function(p) {
+        return '<tr class="hover:bg-slate-50">' +
+          '<td class="py-4 px-6 font-bold">' + p.tenant_name + '</td>' +
+          '<td class="py-4 px-4 text-xs">' + p.property_name + ' • ' + p.unit_number + '</td>' +
+          '<td class="py-4 px-4 font-mono text-xs">' + (p.period_label || "Novembre 2026") + '</td>' +
+          '<td class="py-4 px-4 text-right font-mono font-bold">' + formatFCFA(p.expected_amount) + '</td>' +
+          '<td class="py-4 px-4 text-right font-mono">' + formatFCFA(p.paid_amount) + '</td>' +
+          '<td class="py-4 px-4">' + statusBadge(p.status) + '</td>' +
+          '<td class="py-4 px-6 text-right"><button type="button" data-saspay-id="' + p.id + '" class="bg-blue-900 text-white text-xs px-3 py-1.5 rounded-lg">Action</button></td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    function openSlideOver(leaseId) {
+      const l = (APP_STATE.leases || []).find(function(x) { return x.id === leaseId; });
+      if (!l) return;
+      const tenant = (APP_STATE.tenants || []).find(function(t) { return t.id === l.tenant_id; }) || {};
+      const prop = (APP_STATE.properties || []).find(function(p) { return p.id === l.property_id; }) || {};
+      const unit = (APP_STATE.units || []).find(function(u) { return u.id === l.unit_id; }) || {};
+      const payment = (APP_STATE.payments || []).find(function(pm) { return pm.lease_id === l.id; }) || {};
+
+      document.getElementById("so-tenant-name").textContent = tenant.full_name || "Locataire";
+      document.getElementById("so-tenant-employer").textContent = tenant.employer || "Particulier";
+      document.getElementById("so-rent").textContent = formatFCFA(l.monthly_rent);
+      document.getElementById("so-deposit").textContent = formatFCFA(l.deposit_amount);
+      document.getElementById("so-property").textContent = prop.name || "-";
+      document.getElementById("so-unit").textContent = unit.unit_number || "-";
+      document.getElementById("so-phone").textContent = tenant.phone || "-";
+      document.getElementById("so-start").textContent = l.start_date || "2025-01-01";
+
+      const payBtn = document.getElementById("so-pay-btn");
+      if (payment && payment.status !== "PAID") {
+        payBtn.textContent = "📲 Envoyer lien SasPay (" + formatFCFA(Number(payment.expected_amount) - Number(payment.paid_amount || 0)) + ")";
+        payBtn.onclick = function() { closeSlideOver(); openSasPayModal(payment.id); };
+      } else if (payment && payment.id) {
+        payBtn.textContent = "📥 Télécharger la Quittance PDF";
+        payBtn.onclick = function() { downloadQuittancePDF(payment.id); };
+      }
+      document.getElementById("tenant-slideover").classList.remove("hidden");
+    }
+
+    function closeSlideOver() {
+      document.getElementById("tenant-slideover").classList.add("hidden");
+    }
+
+    function openModal(id) { document.getElementById(id).classList.remove("hidden"); }
+    function closeModal(id) { document.getElementById(id).classList.add("hidden"); }
+
+    function openSasPayModal(paymentId) {
+      SELECTED_PAYMENT_ID = paymentId;
+      const p = (APP_STATE.payments || []).find(function(x) { return x.id === paymentId; });
+      if (!p) return;
+      const rem = Math.max(0, Number(p.expected_amount) - Number(p.paid_amount || 0));
+      document.getElementById("sp-tenant").textContent = p.tenant_name;
+      document.getElementById("sp-unit").textContent = p.property_name + " • " + p.unit_number + " (" + p.period_label + ")";
+      document.getElementById("sp-amount").textContent = formatFCFA(rem);
+      openModal("modal-saspay");
+    }
+
+    function selectChannel(ch) {
+      SELECTED_CHANNEL = ch;
+      ["Wave", "Orange", "MTN"].forEach(function(k) {
+        const el = document.getElementById("chan-" + k);
+        if (!el) return;
+        const active = ch.startsWith(k);
+        el.className = active
+          ? "py-2.5 px-3 rounded-lg border-2 border-blue-900 bg-blue-50 text-blue-900 font-semibold"
+          : "py-2.5 px-3 rounded-lg border border-slate-200 text-slate-700";
+      });
+    }
+
+    async function confirmSasPayPayment() {
+      if (!SELECTED_PAYMENT_ID) return;
+      const btn = document.getElementById("sp-confirm-btn");
+      btn.textContent = "Webhook SasPay + SMS en cours...";
+      btn.disabled = true;
+      try {
+        const res = await fetch(API_BASE + "/api/webhooks/saspay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-saspay-signature": "saspay_live_verified" },
+          body: JSON.stringify({ event: "payment.succeeded", payment_id: SELECTED_PAYMENT_ID, channel: SELECTED_CHANNEL })
+        });
+        const data = await res.json();
+        if (data.state) { APP_STATE = data.state; renderAll(); }
+        closeModal("modal-saspay");
+        showToast(
+          "success",
+          "Loyer encaissé & SMS de quittance envoyé !",
+          data.sms_confirmation || "Le loyer est passé au statut « Payé » et le SMS de confirmation avec lien de quittance a été envoyé au locataire."
+        );
+      } catch (e) {
+        showToast("error", "Erreur SasPay", "Impossible de valider le paiement.");
+      } finally {
+        btn.textContent = "Simuler Webhook SasPay + SMS ✓";
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById("form-github").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById("btn-submit-github");
+      const resBox = document.getElementById("gh-result-box");
+      const repoName = document.getElementById("gh-repo-name").value.trim();
+      const token = document.getElementById("gh-token").value.trim();
+      btn.disabled = true;
+      btn.textContent = "⏳ Création du dépôt et push GitHub en cours...";
+      resBox.classList.add("hidden");
+      try {
+        const res = await fetch(API_BASE + "/api/deploy-github", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo_name: repoName, github_token: token })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || "Erreur GitHub API");
+        resBox.classList.remove("hidden");
+        resBox.innerHTML = '<div class="font-bold">✅ Dépôt GitHub créé et code poussé avec succès !</div>' +
+          '<div>URL du dépôt : <a href="' + data.repo_url + '" target="_blank" class="underline font-bold text-blue-900">' + data.repo_url + '</a></div>' +
+          (data.pages_url ? '<div>GitHub Pages Live : <a href="' + data.pages_url + '" target="_blank" class="underline font-bold text-emerald-800">' + data.pages_url + '</a></div>' : "");
+        showToast("success", "Déployé sur GitHub !", "Votre dépôt " + data.full_name + " est en ligne.");
+      } catch (err) {
+        showToast("error", "Échec du déploiement GitHub", err.message || "Vérifiez votre token GitHub.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🚀 Créer le dépôt & Pousser sur GitHub";
+      }
+    });
+
+    document.getElementById("form-login").addEventListener("submit", function(e) {
+      e.preventDefault();
+      const email = document.getElementById("login-email").value;
+      document.getElementById("auth-status-pill").textContent = "Session: " + email + " (Connecté)";
+      switchMode("app");
+      showToast("success", "Authentification réussie", "Session @supabase/ssr initialisée pour " + email);
+    });
+
+    document.getElementById("form-property").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById("btn-submit-property");
+      const spinner = document.getElementById("spinner-property");
+      const label = document.getElementById("label-submit-property");
+      btn.disabled = true;
+      spinner.classList.remove("hidden");
+      label.textContent = "Création en cours...";
+      try {
+        const payload = {
+          name: document.getElementById("prop-name").value,
+          category: document.getElementById("prop-category").value,
+          total_units: Number(document.getElementById("prop-units").value || 1),
+          address: document.getElementById("prop-address").value,
+          monthly_revenue: Number(document.getElementById("prop-revenue").value || 0)
+        };
+        const res = await fetch(API_BASE + "/api/add-property", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || "Impossible d'insérer la propriété.");
+        if (data.state) { APP_STATE = data.state; renderAll(); }
+        closeModal("modal-property");
+        e.target.reset();
+        switchTab("properties");
+        showToast("success", "Propriété ajoutée avec succès !", "« " + payload.name + " » est enregistrée dans Supabase.");
+      } catch (err) {
+        showToast("error", "Échec de l'ajout", err.message || "Erreur lors de l'insertion dans Supabase.");
+      } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+        label.textContent = "Créer la propriété";
+      }
+    });
+
+    document.getElementById("form-lease").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById("btn-submit-lease");
+      const spinner = document.getElementById("spinner-lease");
+      const label = document.getElementById("label-submit-lease");
+      btn.disabled = true;
+      spinner.classList.remove("hidden");
+      label.textContent = "Enregistrement du bail...";
+      try {
+        const payload = {
+          full_name: document.getElementById("lease-tenant-name").value,
+          phone: document.getElementById("lease-tenant-phone").value,
+          employer: document.getElementById("lease-employer").value,
+          property_id: document.getElementById("lease-property-id").value,
+          unit_number: document.getElementById("lease-unit-number").value,
+          monthly_rent: Number(document.getElementById("lease-rent").value || 0),
+          deposit_amount: Number(document.getElementById("lease-deposit").value || 0),
+          start_date: document.getElementById("lease-start").value
+        };
+        const res = await fetch(API_BASE + "/api/add-tenant-lease", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || "Impossible de créer le bail.");
+        if (data.state) { APP_STATE = data.state; renderAll(); }
+        closeModal("modal-lease");
+        e.target.reset();
+        switchTab("tenants");
+        showToast("success", "Bail et dossier locataire créés avec succès !", payload.full_name + " (" + payload.unit_number + ") a été rattaché.");
+      } catch (err) {
+        showToast("error", "Erreur lors de la création du bail", err.message || "Vérifiez les champs saisis.");
+      } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+        label.textContent = "Créer le Bail";
+      }
+    });
+
+    async function loadState() {
+      try {
+        const res = await fetch(API_BASE + "/api/b2b-state");
+        APP_STATE = await res.json();
+        renderAll();
+      } catch (err) {
+        console.error("Failed to load B2B state:", err);
+      }
+    }
+    loadState();
+  </script>
+</body>
+</html>
