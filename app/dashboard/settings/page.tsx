@@ -9,7 +9,7 @@ import { BRAND } from "@/lib/brand";
 import { formatDate, formatMoney } from "@/lib/format";
 import { isPaymentProviderConfigured, isTestMode } from "@/lib/payments/saspay";
 import { settleRecentPending } from "@/lib/payments/settle";
-import { createAdminClient, isAdminConfigured } from "@/lib/supabase/admin";
+import { createAdminClient, isAdminConfigured, serviceKeyIssue } from "@/lib/supabase/admin";
 import { getAppUrl } from "@/lib/url";
 import { PLANS, PLAN_ORDER, effectivePlan, trialDaysLeft } from "@/lib/plans";
 import { isSmsConfigured } from "@/lib/sms";
@@ -53,6 +53,12 @@ export default async function SettingsPage({ searchParams }: Props) {
         <h1 className="page-title">Paramètres</h1>
         <p className="page-sub">Coordonnées de l'agence, relances et abonnement.</p>
       </div>
+
+      {isAdmin && isPaymentProviderConfigured() && serviceKeyIssue() ? (
+        <p className="alert-error" role="alert">
+          Paiement en ligne bloqué : {serviceKeyIssue()}
+        </p>
+      ) : null}
 
       {justPaid ? (
         <p className="alert-success" role="status">
