@@ -1,0 +1,20 @@
+/** Pays de la zone franc (UEMOA puis CEMAC) et voisins francophones, proposés à l'inscription. */
+export const COUNTRIES = [
+  "Bénin",
+  "Burkina Faso",
+  "Côte d'Ivoire",
+  "Guinée-Bissau",
+  "Mali",
+  "Niger",
+  "Sénégal",
+  "Togo",
+  "Cameroun",
+  "Centrafrique",
+  "Congo",
+  "Gabon",
+  "Guinée équatoriale",
+  "Tchad",
+  "Guinée",
+  "Mauritanie",
+  "RD Congo",
+] as const;

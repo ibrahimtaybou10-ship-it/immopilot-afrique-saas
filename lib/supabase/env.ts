@@ -1,0 +1,10 @@
+export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+
+// Nouvelle clé « publishable » (sb_publishable_…) ou ancienne clé « anon ».
+export const SUPABASE_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+
+export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_KEY);
+
+export const CONFIG_ERROR =
+  "Le service n'est pas encore configuré (variables Supabase manquantes). Consultez le fichier .env.example.";

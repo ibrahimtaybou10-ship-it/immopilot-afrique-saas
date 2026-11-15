@@ -1,37 +1,53 @@
-"use client";
-import { useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
-import { useRouter } from "next/navigation";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { loginAction } from "@/app/actions/auth";
+import { ActionForm } from "@/components/action-form";
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
+export const metadata: Metadata = { title: "Connexion" };
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+interface Props {
+  searchParams: Promise<{ next?: string; error?: string }>;
+}
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (!error) router.push("/dashboard");
-  }
+export default async function LoginPage({ searchParams }: Props) {
+  const { next, error } = await searchParams;
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-      <form onSubmit={handleLogin} className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-5">
-        <h1 className="text-2xl font-bold text-slate-900">Connexion ImmoPilot Afrique</h1>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="direction@koffi-immo.ci" className="w-full px-4 py-3 rounded-xl border border-slate-200" required />
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-slate-200" required />
-        <button type="submit" disabled={loading} className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">
-          {loading ? "Connexion..." : "Accéder au Dashboard"}
-        </button>
-      </form>
-    </main>
+    <>
+      <h1 className="page-title">Connexion</h1>
+      <p className="page-sub">Accédez à votre espace de gestion locative.</p>
+
+      {error ? (
+        <p role="alert" className="alert-error mt-6">
+          Ce lien n'est plus valide. Connectez-vous ou demandez un nouveau lien.
+        </p>
+      ) : null}
+
+      <div className="mt-6">
+        <ActionForm action={loginAction} submitLabel="Se connecter">
+          {next ? <input type="hidden" name="next" value={next} /> : null}
+          <div>
+            <label htmlFor="email" className="label">Adresse e-mail</label>
+            <input id="email" name="email" type="email" autoComplete="email" required className="input" placeholder="vous@agence.ci" />
+          </div>
+          <div>
+            <div className="flex items-baseline justify-between">
+              <label htmlFor="password" className="label">Mot de passe</label>
+              <Link href="/forgot-password" className="text-xs font-semibold text-brand-700 hover:underline">
+                Mot de passe oublié ?
+              </Link>
+            </div>
+            <input id="password" name="password" type="password" autoComplete="current-password" required className="input" />
+          </div>
+        </ActionForm>
+      </div>
+
+      <p className="mt-6 text-sm text-slate-600">
+        Pas encore de compte ?{" "}
+        <Link href="/signup" className="font-semibold text-brand-700 hover:underline">
+          Créer un compte gratuit
+        </Link>
+      </p>
+    </>
   );
 }
