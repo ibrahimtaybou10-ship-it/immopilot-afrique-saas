@@ -207,6 +207,7 @@ export function RentRollTable({
                                 overdue: invoice.overdue,
                                 agencyName: agency.name,
                                 payUrl: payUrl(invoice),
+                                otherDue: invoice.otherDue,
                               }),
                             )}
                           >
@@ -273,6 +274,10 @@ function ReminderButton({ invoiceId }: { invoiceId: string }) {
 
 function PaymentForm({ invoice, currency, onClose }: { invoice: Invoice; currency: string; onClose: () => void }) {
   const [state, formAction, pending] = useActionState(recordPaymentAction, null);
+  const [multi, setMulti] = useState(false);
+  const [months, setMonths] = useState(2);
+  // Ce mois (reste dû) + les mois suivants au montant du bail.
+  const multiTotal = invoice.balance + (months - 1) * invoice.monthly;
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -308,22 +313,59 @@ function PaymentForm({ invoice, currency, onClose }: { invoice: Invoice; currenc
           <span className="text-sm text-slate-600">Reste à payer</span>
           <span className="money text-lg font-bold text-slate-900">{formatMoney(invoice.balance, currency)}</span>
         </div>
+        {invoice.otherDue > 0 ? (
+          <p className="alert-error">
+            Ce locataire doit aussi {formatMoney(invoice.otherDue, currency)} sur d'autres échéances (impayés).
+          </p>
+        ) : null}
+
+        <label className={`flex items-start gap-3 rounded-xl border p-3.5 ${multi ? "border-brand-300 bg-brand-50" : "border-slate-200 bg-slate-50"}`}>
+          <input
+            type="checkbox"
+            checked={multi}
+            onChange={(e) => setMulti(e.target.checked)}
+            className="mt-0.5 size-4 rounded border-slate-300 accent-brand-700"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-slate-900">Le locataire paie plusieurs mois</span>
+            <span className="block text-xs text-slate-600">
+              Solde {invoice.periodLabel.toLowerCase().includes("impay") ? "ces impayés" : invoice.periodLabel} et les mois suivants d'un coup, avec une quittance par mois.
+            </span>
+          </span>
+        </label>
+
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="pay-amount" className="label">Montant reçu ({currency})</label>
-            <input
-              id="pay-amount"
-              name="amount"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={invoice.balance}
-              step={1}
-              required
-              defaultValue={invoice.balance}
-              className="input money"
-            />
-          </div>
+          {multi ? (
+            <div>
+              <label htmlFor="pay-months" className="label">Nombre de mois payés</label>
+              <select id="pay-months" name="months" className="input" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
+                {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => (
+                  <option key={n} value={n}>
+                    {n} mois
+                  </option>
+                ))}
+              </select>
+              <p className="hint">
+                Total à recevoir : <strong className="money text-slate-900">{formatMoney(multiTotal, currency)}</strong>
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label htmlFor="pay-amount" className="label">Montant reçu ({currency})</label>
+              <input
+                id="pay-amount"
+                name="amount"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={invoice.balance}
+                step={1}
+                required
+                defaultValue={invoice.balance}
+                className="input money"
+              />
+            </div>
+          )}
           <div>
             <label htmlFor="pay-method" className="label">Mode de paiement</label>
             <select id="pay-method" name="method" className="input" defaultValue="ESPECES">
@@ -339,7 +381,7 @@ function PaymentForm({ invoice, currency, onClose }: { invoice: Invoice; currenc
           <label htmlFor="pay-note" className="label">Note (facultatif)</label>
           <input id="pay-note" name="note" maxLength={200} className="input" placeholder="Référence du transfert, n° de chèque…" />
         </div>
-        <p className="hint">Un montant inférieur au reste à payer est enregistré comme paiement partiel.</p>
+        {multi ? null : <p className="hint">Un montant inférieur au reste à payer est enregistré comme paiement partiel.</p>}
         {state && !state.ok ? (
           <p role="alert" className="alert-error">
             {state.error}
@@ -353,7 +395,7 @@ function PaymentForm({ invoice, currency, onClose }: { invoice: Invoice; currenc
         </button>
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : null}
-          Enregistrer le paiement
+          {multi ? `Encaisser ${months} mois` : "Enregistrer le paiement"}
         </button>
       </footer>
     </form>

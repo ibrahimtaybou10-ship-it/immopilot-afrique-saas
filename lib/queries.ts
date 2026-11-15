@@ -6,6 +6,7 @@ export const INVOICE_SELECT = `
   id, lease_id, period_month, period_label, due_date, expected_amount, charges_amount, amount_paid,
   status, payment_method, receipt_number, paid_at, pay_token, reminder_count, last_reminder_at,
   leases!inner (
+    monthly_rent, charges_amount,
     lease_tenants!inner ( full_name, phone ),
     units!inner ( unit_number ),
     properties!inner ( name, address, city )
@@ -28,6 +29,8 @@ interface InvoiceRow {
   reminder_count: number;
   last_reminder_at: string | null;
   leases: {
+    monthly_rent: number;
+    charges_amount: number;
     lease_tenants: { full_name: string; phone: string };
     units: { unit_number: string };
     properties: { name: string; address: string; city: string };
@@ -63,6 +66,8 @@ export function toInvoice(row: unknown, today: string = todayISO()): Invoice {
     propertyName: r.leases.properties.name,
     propertyAddress: r.leases.properties.address,
     propertyCity: r.leases.properties.city,
+    monthly: Number(r.leases.monthly_rent) + Number(r.leases.charges_amount),
+    otherDue: 0,
   };
 }
 
@@ -82,4 +87,30 @@ export function agencyCard(agency: Agency): AgencyCard {
     rccm_number: agency.rccm_number,
     currency: agency.currency,
   };
+}
+
+type OpenRow = { id: string; lease_id: string; expected_amount: number; amount_paid: number };
+
+/**
+ * Renseigne `otherDue` : ce que le locataire doit encore sur ses AUTRES échéances
+ * (impayés antérieurs, mois précédents). Une seule requête pour toute la liste.
+ */
+export async function withOtherDue(
+  supabase: { from: (t: "rent_payments") => any },
+  invoices: Invoice[],
+): Promise<Invoice[]> {
+  const leaseIds = [...new Set(invoices.map((i) => i.leaseId))];
+  if (leaseIds.length === 0) return invoices;
+  const { data } = await supabase
+    .from("rent_payments")
+    .select("id, lease_id, expected_amount, amount_paid")
+    .in("lease_id", leaseIds)
+    .neq("status", "PAID");
+  const rows = (data ?? []) as OpenRow[];
+  return invoices.map((invoice) => ({
+    ...invoice,
+    otherDue: rows
+      .filter((r) => r.lease_id === invoice.leaseId && r.id !== invoice.id)
+      .reduce((sum, r) => sum + Math.max(Number(r.expected_amount) - Number(r.amount_paid), 0), 0),
+  }));
 }

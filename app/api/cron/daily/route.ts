@@ -4,7 +4,7 @@ import { reminderMessage } from "@/lib/messages";
 import { settleRecentPending } from "@/lib/payments/settle";
 import { addDaysISO, currentPeriod, todayISO } from "@/lib/periods";
 import { PLANS, effectivePlan } from "@/lib/plans";
-import { INVOICE_SELECT, toInvoice } from "@/lib/queries";
+import { INVOICE_SELECT, toInvoice, withOtherDue } from "@/lib/queries";
 import { sendSms } from "@/lib/sms";
 import { createAdminClient, isAdminConfigured } from "@/lib/supabase/admin";
 import type { Agency } from "@/lib/types";
@@ -68,9 +68,10 @@ export async function GET(request: NextRequest) {
     .eq("agencies.auto_reminders", true)
     .limit(MAX_REMINDERS_PER_RUN);
 
+  const withDue = await withOtherDue(admin, (rows ?? []).map((row) => toInvoice(row, today)));
   const due = (rows ?? [])
-    .map((row) => ({
-      invoice: toInvoice(row, today),
+    .map((row, index) => ({
+      invoice: withDue.at(index) ?? toInvoice(row, today),
       agency: (row as unknown as { agencies: ReminderAgency }).agencies,
     }))
     .filter(
@@ -98,6 +99,7 @@ export async function GET(request: NextRequest) {
             overdue: invoice.overdue,
             agencyName: agency.name,
             payUrl: `${appUrl}/pay/${invoice.payToken}`,
+            otherDue: invoice.otherDue,
           }),
           agency.sms_sender_id,
         );

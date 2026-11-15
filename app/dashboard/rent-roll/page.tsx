@@ -8,7 +8,7 @@ import { getAgencyContext, requireSession } from "@/lib/auth";
 import { formatMoney, percent } from "@/lib/format";
 import { currentPeriod, isValidPeriod, periodLabel, shiftPeriod } from "@/lib/periods";
 import { PLANS, effectivePlan } from "@/lib/plans";
-import { INVOICE_SELECT, agencyCard, toInvoices } from "@/lib/queries";
+import { INVOICE_SELECT, agencyCard, toInvoices, withOtherDue } from "@/lib/queries";
 import { getAppUrl } from "@/lib/url";
 
 export const metadata: Metadata = { title: "Collecte des loyers" };
@@ -34,7 +34,7 @@ export default async function RentRollPage({ searchParams }: Props) {
   ]);
 
   // Non soldés d'abord, puis par nom de locataire.
-  const invoices = toInvoices(data).sort(
+  const invoices = (await withOtherDue(supabase, toInvoices(data))).sort(
     (a, b) =>
       Number(a.status === "PAID") - Number(b.status === "PAID") ||
       (unpaidView ? (a.dueDate ?? "").localeCompare(b.dueDate ?? "") : 0) ||

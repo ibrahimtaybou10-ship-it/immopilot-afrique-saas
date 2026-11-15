@@ -8,7 +8,7 @@ import { RentRollTable } from "@/components/rent-roll-table";
 import { getAgencyContext, requireSession } from "@/lib/auth";
 import { formatDate, formatMoney } from "@/lib/format";
 import { todayISO } from "@/lib/periods";
-import { INVOICE_SELECT, agencyCard, toInvoices } from "@/lib/queries";
+import { INVOICE_SELECT, agencyCard, toInvoices, withOtherDue } from "@/lib/queries";
 import type { LeaseStatus } from "@/lib/types";
 import { getAppUrl } from "@/lib/url";
 import { isUuid } from "@/lib/validation";
@@ -51,7 +51,7 @@ export default async function LeasePage({ params }: { params: Promise<{ id: stri
   const lease = leaseRes.data as unknown as LeaseDetail | null;
   if (!lease) notFound();
 
-  const invoices = toInvoices(invoicesRes.data);
+  const invoices = await withOtherDue(supabase, toInvoices(invoicesRes.data));
   const tenant = lease.lease_tenants;
   const totalPaid = invoices.reduce((sum, invoice) => sum + invoice.paid, 0);
   const outstanding = invoices.reduce((sum, invoice) => sum + invoice.balance, 0);

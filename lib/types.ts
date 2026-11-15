@@ -72,6 +72,10 @@ export interface Invoice {
   propertyName: string;
   propertyAddress: string;
   propertyCity: string;
+  /** Loyer + charges du bail (montant d'un mois). */
+  monthly: number;
+  /** Reste dû sur les AUTRES échéances non soldées du même bail (impayés). */
+  otherDue: number;
 }
 
 /** Coordonnées de l'agence imprimées sur les quittances et messages. */

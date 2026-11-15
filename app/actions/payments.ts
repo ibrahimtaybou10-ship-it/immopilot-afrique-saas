@@ -5,7 +5,7 @@ import { SESSION_EXPIRED, dbError, fail, firstIssue, formObject } from "@/lib/ac
 import { getAgencyContext, getSession } from "@/lib/auth";
 import { reminderMessage } from "@/lib/messages";
 import { isValidPeriod, periodLabel } from "@/lib/periods";
-import { INVOICE_SELECT, toInvoice } from "@/lib/queries";
+import { INVOICE_SELECT, toInvoice, withOtherDue } from "@/lib/queries";
 import { sendSms } from "@/lib/sms";
 import type { ActionResult } from "@/lib/types";
 import { getAppUrl } from "@/lib/url";
@@ -19,6 +19,25 @@ export async function recordPaymentAction(_prev: ActionResult, formData: FormDat
 
   const session = await getSession();
   if (!session) return fail(SESSION_EXPIRED);
+
+  // Plusieurs mois : la base solde ce mois et les suivants (créés si besoin), une quittance par mois.
+  if (v.months > 1) {
+    const { data, error } = await session.supabase.rpc("pay_months", {
+      p_rent_payment_id: v.invoice_id,
+      p_months: v.months,
+      p_method: v.method,
+      p_note: v.note,
+    });
+    if (error) return fail(dbError(error));
+    const r = data as { months_paid: number; total: number; first_period: string; last_period: string } | null;
+    revalidatePath("/dashboard", "layout");
+    return {
+      ok: true,
+      message: r
+        ? `${r.months_paid} mois soldés (${r.first_period} → ${r.last_period}), ${new Intl.NumberFormat("fr-FR").format(r.total)} FCFA encaissés. Une quittance par mois est disponible.`
+        : "Paiement de plusieurs mois enregistré.",
+    };
+  }
 
   // apply_payment vérifie lui-même que l'échéance appartient à l'agence du compte.
   const { data, error } = await session.supabase.rpc("apply_payment", {
@@ -78,7 +97,7 @@ export async function sendReminderAction(invoiceId: string): Promise<ActionResul
   ]);
   if (!row) return fail("Échéance introuvable.");
 
-  const invoice = toInvoice(row);
+  const [invoice] = await withOtherDue(supabase, [toInvoice(row)]);
   if (invoice.status === "PAID") return fail("Ce loyer est déjà réglé.");
 
   const text = reminderMessage({
@@ -90,6 +109,7 @@ export async function sendReminderAction(invoiceId: string): Promise<ActionResul
     overdue: invoice.overdue,
     agencyName: agency.name,
     payUrl: `${appUrl}/pay/${invoice.payToken}`,
+    otherDue: invoice.otherDue,
   });
 
   const result = await sendSms(invoice.tenantPhone, text, agency.sms_sender_id);

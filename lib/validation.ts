@@ -126,10 +126,12 @@ export const terminateSchema = z.object({
 
 export const paymentSchema = z.object({
   invoice_id: uuid("Échéance"),
-  amount: amount("Montant").min(1, "Le montant doit être supérieur à zéro"),
+  // Montant ignoré quand plusieurs mois sont payés : il est alors calculé par la base.
+  amount: z.coerce.number({ error: "Montant invalide" }).int("Montant entier attendu").min(0).max(1_000_000_000).default(0),
   method: z.enum(MANUAL_METHODS, { error: "Mode de paiement invalide" }),
   note: optional(200),
-});
+  months: z.coerce.number().int().min(1, "Nombre de mois invalide").max(24, "24 mois maximum").default(1),
+}).refine((v) => v.months > 1 || v.amount >= 1, { message: "Le montant doit être supérieur à zéro", path: ["amount"] });
 
 export const agencySchema = z.object({
   name: required("Nom de l'agence", 80),

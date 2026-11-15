@@ -9,16 +9,26 @@ interface ReminderInput {
   overdue: boolean;
   agencyName: string;
   payUrl: string;
+  /** Reste dû sur les autres échéances (impayés antérieurs, mois précédents). */
+  otherDue?: number;
 }
 
-/** Message de relance (WhatsApp : accents conservés). */
+/** Message de relance (WhatsApp : accents conservés). Les impayés et le total dû sont inclus. */
 export function reminderMessage(i: ReminderInput): string {
   const amount = formatMoneyPlain(i.balance, i.currency);
   const due = i.dueDate ? formatDate(i.dueDate) : "";
-  const body = i.overdue
-    ? `sauf erreur de notre part, votre loyer de ${i.periodLabel} (${amount}) reste à régler${due ? ` depuis le ${due}` : ""}.`
-    : `votre loyer de ${i.periodLabel} (${amount}) est attendu${due ? ` pour le ${due}` : ""}.`;
-  return `Bonjour ${i.tenantName}, ${body} Détail et paiement : ${i.payUrl} — ${i.agencyName}`;
+  const isArrears = /impay/i.test(i.periodLabel);
+  const what = isArrears ? `vos impayés antérieurs (${amount})` : `votre loyer de ${i.periodLabel} (${amount})`;
+  const body = isArrears
+    ? `sauf erreur de notre part, ${what} restent à régler.`
+    : i.overdue
+      ? `sauf erreur de notre part, ${what} reste à régler${due ? ` depuis le ${due}` : ""}.`
+      : `${what} est attendu${due ? ` pour le ${due}` : ""}.`;
+  const other = Math.max(i.otherDue ?? 0, 0);
+  const arrears = other > 0
+    ? ` Vous avez aussi ${formatMoneyPlain(other, i.currency)} d'impayés, soit un total dû de ${formatMoneyPlain(i.balance + other, i.currency)}.`
+    : "";
+  return `Bonjour ${i.tenantName}, ${body}${arrears} Détail et paiement : ${i.payUrl} — ${i.agencyName}`;
 }
 
 interface ConfirmationInput {
