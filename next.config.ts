@@ -10,6 +10,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Police des affiches publicitaires, lue sur disque par /pub/[format].
+  outputFileTracingIncludes: { "/pub/[format]": ["./assets/fonts/**"] },
   reactStrictMode: true,
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
