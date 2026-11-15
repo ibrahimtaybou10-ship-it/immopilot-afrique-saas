@@ -7,7 +7,7 @@ import { BRAND } from "@/lib/brand";
 import { countryCode } from "@/lib/countries";
 import { createCheckout, isPaymentProviderConfigured, isRentOnlinePaymentEnabled } from "@/lib/payments/saspay";
 import { PLANS, effectivePlan } from "@/lib/plans";
-import { createAdminClient, isAdminConfigured } from "@/lib/supabase/admin";
+import { createAdminClient, isAdminConfigured, serviceKeyIssue } from "@/lib/supabase/admin";
 import type { ActionResult, Agency, PlanId } from "@/lib/types";
 import { getAppUrl } from "@/lib/url";
 
@@ -27,9 +27,12 @@ export async function startSubscriptionCheckoutAction(planId: PlanId): Promise<A
 
   const { agency, role, email } = await getAgencyContext();
   if (role !== "OWNER" && role !== "ADMIN") return fail("Seul un administrateur peut modifier l'abonnement.");
-  if (!isPaymentProviderConfigured() || !isAdminConfigured()) {
+  if (!isPaymentProviderConfigured()) {
     return fail("Le paiement en ligne de l'abonnement n'est pas encore activé. Contactez-nous pour changer d'offre.");
   }
+  // Message précis pour l'administrateur : c'est lui qui configure les clés dans Vercel.
+  const keyIssue = serviceKeyIssue();
+  if (keyIssue) return fail(`Paiement indisponible : ${keyIssue}`);
 
   const appUrl = await getAppUrl();
   const checkout = await createCheckout({
@@ -57,7 +60,7 @@ export async function startSubscriptionCheckoutAction(planId: PlanId): Promise<A
   });
   if (error) {
     console.error("[billing] enregistrement du paiement d'abonnement impossible :", error.code ?? "", error.message);
-    return fail("Impossible d'initialiser le paiement. Réessayez.");
+    return fail(`Impossible d'enregistrer le paiement : ${error.message.slice(0, 160)}`);
   }
 
   redirect(checkout.checkoutUrl);
