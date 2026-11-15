@@ -16,7 +16,7 @@ encaissements, relances et quittances.
 | Échéances | Générées chaque jour pour le mois en cours (sans doublon), ou à la demande |
 | Encaissements | Paiements partiels ou complets, journal des transactions, quittance numérotée au solde |
 | Relances | SMS en un clic, lien WhatsApp pré-rempli, relances automatiques (J-3, J+1, J+7, J+15) |
-| Paiement en ligne | Page publique par échéance (`/pay/<jeton>`) : Mobile Money ou carte via CinetPay |
+| Paiement en ligne | Page publique par échéance (`/pay/<jeton>`) : Mobile Money ou carte via SasPay (abonnements ; loyers sur activation) |
 | Quittances | PDF généré dans le navigateur, téléchargeable par l'agence et par le locataire |
 | Mobile | Application installable sur l'écran d'accueil (Android, iPhone), plein écran, page hors connexion |
 | Pilotage | Tableau de bord (occupation, attendu, encaissé, retards, 6 derniers mois), export CSV |
@@ -73,7 +73,9 @@ anciennes politiques `USING (true)`, qui laissaient toutes les données lisibles
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | oui | Clé publique (`NEXT_PUBLIC_SUPABASE_ANON_KEY` est aussi acceptée) |
 | `SUPABASE_SERVICE_ROLE_KEY` | pour le cron et le paiement en ligne | Clé serveur, jamais exposée au navigateur |
 | `CRON_SECRET` | pour le cron | Secret envoyé par Vercel Cron (`Authorization: Bearer …`) |
-| `CINETPAY_API_KEY`, `CINETPAY_SITE_ID` | non | Active le paiement en ligne (loyers et abonnement) |
+| `SASPAY_SECRET_KEY` | non | Clé secrète SasPay (`sk_test_…` ou `sk_live_…`) : active le paiement en ligne des abonnements |
+| `SASPAY_WEBHOOK_SECRET` | avec SasPay | Secret de signature du webhook SasPay |
+| `SASPAY_RENT_PAYMENTS` | non | `enabled` pour ouvrir aussi le paiement des loyers en ligne (fonds reçus sur le compte de la plateforme) |
 | `INFOBIP_API_KEY`, `INFOBIP_BASE_URL` | non | Active l'envoi réel des SMS ; sans clé, ils sont simulés |
 
 Dans Supabase (Authentication > URL Configuration), ajoutez `https://votre-domaine/auth/callback`
@@ -84,8 +86,9 @@ aux URL de redirection autorisées.
 1. Importez le dépôt dans Vercel et renseignez les variables d'environnement.
 2. `vercel.json` déclare la tâche quotidienne `/api/cron/daily` (06:00 UTC) et la région `cdg1`
    (Paris). Choisissez la région la plus proche de votre base Supabase.
-3. Dans l'espace marchand CinetPay, l'URL de notification est
-   `https://votre-domaine/api/webhooks/cinetpay`.
+3. Dans le tableau de bord SasPay (Webhooks), créez un webhook vers
+   `https://votre-domaine/api/webhooks/saspay`, abonné à `transaction.success`, et copiez son
+   secret de signature dans `SASPAY_WEBHOOK_SECRET` (il n'est affiché qu'une fois).
 
 ## Organisation du code
 
@@ -98,7 +101,7 @@ app/
   pay/[token]/                  Page publique de paiement et de quittance du locataire
   actions/                      Server Actions (toutes les écritures)
   api/cron/daily/               Échéances du mois + relances automatiques
-  api/webhooks/cinetpay/        Confirmation des paiements en ligne
+  api/webhooks/saspay/          Confirmation des paiements en ligne (signature HMAC)
 components/                     Composants d'interface
 lib/                            Accès Supabase, offres, formats, messages, paiement, SMS, validation
 proxy.ts                        Rafraîchissement de session et protection des routes privées
@@ -111,7 +114,7 @@ supabase/migrations/            Schéma SQL, RLS, fonctions métier
 - **Encaissements** : `apply_payment()` verrouille l'échéance, journalise la transaction et attribue
   le numéro de quittance dans une seule transaction SQL. Une notification rejouée n'encaisse pas deux fois.
 - **Webhook** : le contenu reçu n'est jamais cru sur parole ; l'état du paiement est relu auprès de
-  CinetPay avec la clé API avant toute écriture.
+  SasPay avec la clé secrète avant toute écriture ; la signature HMAC et l'horodatage du webhook sont vérifiés.
 - **Abonnement** : l'offre d'une agence n'est modifiable ni par l'interface ni par l'API publique
   (privilèges de colonnes), seulement par le webhook. Le plafond de lots de l'offre est appliqué
   par un trigger de la base : il ne peut pas être contourné en appelant l'API directement.

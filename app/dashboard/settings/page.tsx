@@ -7,7 +7,10 @@ import { ActionForm } from "@/components/action-form";
 import { getAgencyContext, requireSession } from "@/lib/auth";
 import { BRAND } from "@/lib/brand";
 import { formatDate, formatMoney } from "@/lib/format";
-import { isPaymentProviderConfigured } from "@/lib/payments/cinetpay";
+import { isPaymentProviderConfigured, isTestMode } from "@/lib/payments/saspay";
+import { settleRecentPending } from "@/lib/payments/settle";
+import { createAdminClient, isAdminConfigured } from "@/lib/supabase/admin";
+import { getAppUrl } from "@/lib/url";
 import { PLANS, PLAN_ORDER, effectivePlan, trialDaysLeft } from "@/lib/plans";
 import { isSmsConfigured } from "@/lib/sms";
 
@@ -19,7 +22,19 @@ interface Props {
 
 export default async function SettingsPage({ searchParams }: Props) {
   const { paiement } = await searchParams;
-  const { supabase } = await requireSession();
+  const { supabase, userId } = await requireSession();
+
+  // Retour depuis la page SasPay : l'abonnement est confirmé tout de suite (revérifié chez SasPay).
+  let justPaid = false;
+  if (paiement === "retour" && isPaymentProviderConfigured() && isAdminConfigured()) {
+    const admin = createAdminClient();
+    const { data: member } = await admin.from("agency_members").select("agency_id").eq("user_id", userId).limit(1).maybeSingle();
+    if (member) {
+      const counts = await settleRecentPending(admin, await getAppUrl(), { agencyId: member.agency_id, limit: 5 });
+      justPaid = counts.paid > 0;
+    }
+  }
+
   const [{ agency, role }, { count: unitCount }] = await Promise.all([
     getAgencyContext(),
     supabase.from("units").select("id", { count: "exact", head: true }),
@@ -39,7 +54,11 @@ export default async function SettingsPage({ searchParams }: Props) {
         <p className="page-sub">Coordonnées de l'agence, relances et abonnement.</p>
       </div>
 
-      {paiement === "retour" ? (
+      {justPaid ? (
+        <p className="alert-success" role="status">
+          Paiement confirmé : votre abonnement est actif. Merci !
+        </p>
+      ) : paiement === "retour" ? (
         <p className="alert-info" role="status">
           Paiement en cours de confirmation. Votre offre est mise à jour dès que le prestataire valide la transaction ;
           actualisez cette page dans un instant.
@@ -107,9 +126,13 @@ export default async function SettingsPage({ searchParams }: Props) {
         </div>
         {!isPaymentProviderConfigured() ? (
           <p className="hint mt-4">
-            Le paiement en ligne de l'abonnement n'est pas encore activé sur cette plateforme (clés CinetPay non renseignées).
+            Le paiement en ligne de l'abonnement n'est pas encore activé sur cette plateforme (clé SasPay non renseignée).
           </p>
-        ) : null}
+        ) : isTestMode() ? (
+          <p className="hint mt-4">Mode test SasPay : aucun argent réel n'est débité.</p>
+        ) : (
+          <p className="hint mt-4">Paiement sécurisé par SasPay : mobile money ou carte bancaire.</p>
+        )}
       </section>
 
       {/* Agence */}

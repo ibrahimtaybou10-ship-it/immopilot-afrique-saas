@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { reminderMessage } from "@/lib/messages";
+import { isPaymentProviderConfigured } from "@/lib/payments/saspay";
+import { settleRecentPending } from "@/lib/payments/settle";
 import { addDaysISO, currentPeriod, todayISO } from "@/lib/periods";
 import { PLANS, effectivePlan } from "@/lib/plans";
 import { INVOICE_SELECT, toInvoice } from "@/lib/queries";
@@ -50,6 +52,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const appUrl = await getAppUrl();
+
+  // Filet de sécurité : paiements SasPay restés en attente (webhook perdu, client parti avant le retour).
+  const reconciled = isPaymentProviderConfigured()
+    ? await settleRecentPending(admin, appUrl, { limit: 100 })
+    : null;
+
   const today = todayISO();
   const { data: rows } = await admin
     .from("rent_payments")
@@ -61,7 +70,6 @@ export async function GET(request: NextRequest) {
     .eq("agencies.auto_reminders", true)
     .limit(MAX_REMINDERS_PER_RUN);
 
-  const appUrl = await getAppUrl();
   const due = (rows ?? [])
     .map((row) => ({
       invoice: toInvoice(row, today),
@@ -114,5 +122,6 @@ export async function GET(request: NextRequest) {
     invoices_created: Number(created ?? 0),
     reminders_sent: sent,
     reminders_failed: failed,
+    online_payments: reconciled,
   });
 }

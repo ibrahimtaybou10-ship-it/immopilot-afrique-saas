@@ -6,7 +6,10 @@ import { PayButton } from "@/components/pay-button";
 import { ReceiptButton } from "@/components/receipt-button";
 import { BRAND } from "@/lib/brand";
 import { formatDate, formatMoney, methodLabel } from "@/lib/format";
-import { isPaymentProviderConfigured } from "@/lib/payments/cinetpay";
+import { isRentOnlinePaymentEnabled } from "@/lib/payments/saspay";
+import { settleRecentPending } from "@/lib/payments/settle";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppUrl } from "@/lib/url";
 import { todayISO } from "@/lib/periods";
 import { isAdminConfigured } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -19,6 +22,7 @@ export const metadata: Metadata = {
 };
 
 interface PublicInvoice {
+  id: string;
   period_label: string;
   due_date: string | null;
   expected_amount: number;
@@ -53,8 +57,18 @@ export default async function PayPage({ params, searchParams }: Props) {
 
   const supabase = await createClient();
   const { data } = await supabase.rpc("public_invoice", { p_token: token });
-  const invoice = data as PublicInvoice | null;
+  let invoice = data as PublicInvoice | null;
   if (!invoice) notFound();
+
+  // Retour depuis la page SasPay : on confirme tout de suite le paiement (revérifié chez SasPay),
+  // sans attendre le webhook, pour que le locataire voie aussitôt sa quittance.
+  if (retour && invoice.status !== "PAID" && isAdminConfigured()) {
+    const counts = await settleRecentPending(createAdminClient(), await getAppUrl(), { rentPaymentId: invoice.id, limit: 3 });
+    if (counts.paid > 0) {
+      const { data: fresh } = await supabase.rpc("public_invoice", { p_token: token });
+      invoice = (fresh as PublicInvoice | null) ?? invoice;
+    }
+  }
 
   const { agency } = invoice;
   const currency = agency.currency;
@@ -63,7 +77,7 @@ export default async function PayPage({ params, searchParams }: Props) {
   const balance = Math.max(expected - paid, 0);
   const isPaid = invoice.status === "PAID";
   const overdue = !isPaid && (invoice.due_date ?? "") < todayISO();
-  const canPayOnline = !isPaid && invoice.online_payment && isPaymentProviderConfigured() && isAdminConfigured();
+  const canPayOnline = !isPaid && invoice.online_payment && isRentOnlinePaymentEnabled() && isAdminConfigured();
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-4 py-8">
