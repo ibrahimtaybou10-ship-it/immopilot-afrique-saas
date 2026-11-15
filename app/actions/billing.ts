@@ -5,7 +5,8 @@ import { fail } from "@/lib/action-utils";
 import { getAgencyContext } from "@/lib/auth";
 import { BRAND } from "@/lib/brand";
 import { countryCode } from "@/lib/countries";
-import { createCheckout, isPaymentProviderConfigured, isRentOnlinePaymentEnabled } from "@/lib/payments/saspay";
+import { getAgencyCredentials } from "@/lib/payments/accounts";
+import { createCheckout, isPaymentProviderConfigured } from "@/lib/payments/saspay";
 import { PLANS, effectivePlan } from "@/lib/plans";
 import { createAdminClient, isAdminConfigured, serviceKeyIssue } from "@/lib/supabase/admin";
 import type { ActionResult, Agency, PlanId } from "@/lib/types";
@@ -68,12 +69,13 @@ export async function startSubscriptionCheckoutAction(planId: PlanId): Promise<A
 
 /**
  * Paiement d'un loyer par le locataire depuis sa page publique (/pay/<jeton>).
- * Action publique : seul le jeton secret de l'échéance donne accès, et le montant est
- * toujours recalculé côté serveur.
+ * L'argent est encaissé sur le compte SasPay DE L'AGENCE (sa propre clé), jamais sur celui
+ * de la plateforme. Action publique : seul le jeton secret de l'échéance donne accès, et le
+ * montant est toujours recalculé côté serveur.
  */
 export async function startRentCheckoutAction(token: string): Promise<ActionResult> {
   if (typeof token !== "string" || !/^[0-9a-f]{64}$/.test(token)) return fail("Lien de paiement invalide.");
-  if (!isRentOnlinePaymentEnabled() || !isAdminConfigured()) return fail(ONLINE_PAYMENT_OFF);
+  if (!isAdminConfigured()) return fail(ONLINE_PAYMENT_OFF);
 
   const admin = createAdminClient();
   const { data: invoice } = await admin
@@ -95,6 +97,9 @@ export async function startRentCheckoutAction(token: string): Promise<ActionResu
   const tenant = (invoice.leases as unknown as { lease_tenants: { full_name: string; phone: string; email: string | null } })
     .lease_tenants;
   if (effectivePlan(agency) === "STARTER") return fail(ONLINE_PAYMENT_OFF);
+
+  const credentials = await getAgencyCredentials(admin, invoice.agency_id);
+  if (!credentials) return fail(ONLINE_PAYMENT_OFF);
 
   const balance = Number(invoice.expected_amount) - Number(invoice.amount_paid);
   if (balance <= 0) return fail("Ce loyer est déjà réglé.");
@@ -125,7 +130,7 @@ export async function startRentCheckoutAction(token: string): Promise<ActionResu
     country: countryCode(agency.country),
     returnUrl: `${appUrl}/pay/${token}?retour=1`,
     metadata: { kind: "RENT", agency_id: invoice.agency_id, rent_payment_id: invoice.id },
-  });
+  }, credentials.secretKey);
   if (!checkout.ok) return fail(checkout.error);
 
   const { error } = await admin.from("payment_transactions").insert({

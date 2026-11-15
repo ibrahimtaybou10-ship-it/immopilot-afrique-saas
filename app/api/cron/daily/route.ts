@@ -1,7 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { reminderMessage } from "@/lib/messages";
-import { isPaymentProviderConfigured } from "@/lib/payments/saspay";
 import { settleRecentPending } from "@/lib/payments/settle";
 import { addDaysISO, currentPeriod, todayISO } from "@/lib/periods";
 import { PLANS, effectivePlan } from "@/lib/plans";
@@ -55,9 +54,8 @@ export async function GET(request: NextRequest) {
   const appUrl = await getAppUrl();
 
   // Filet de sécurité : paiements SasPay restés en attente (webhook perdu, client parti avant le retour).
-  const reconciled = isPaymentProviderConfigured()
-    ? await settleRecentPending(admin, appUrl, { limit: 100 })
-    : null;
+  // Chaque paiement est revérifié avec la clé du bon compte : agence (loyer) ou plateforme (abonnement).
+  const reconciled = await settleRecentPending(admin, appUrl, { limit: 100 });
 
   const today = todayISO();
   const { data: rows } = await admin

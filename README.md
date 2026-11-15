@@ -16,7 +16,7 @@ encaissements, relances et quittances.
 | Échéances | Générées chaque jour pour le mois en cours (sans doublon), ou à la demande |
 | Encaissements | Paiements partiels ou complets, journal des transactions, quittance numérotée au solde |
 | Relances | SMS en un clic, lien WhatsApp pré-rempli, relances automatiques (J-3, J+1, J+7, J+15) |
-| Paiement en ligne | Page publique par échéance (`/pay/<jeton>`) : Mobile Money ou carte via SasPay (abonnements ; loyers sur activation) |
+| Paiement en ligne | Page publique par échéance (`/pay/<jeton>`) : Mobile Money ou carte via SasPay ; chaque agence encaisse sur son propre compte |
 | Quittances | PDF généré dans le navigateur, téléchargeable par l'agence et par le locataire |
 | Mobile | Application installable sur l'écran d'accueil (Android, iPhone), plein écran, page hors connexion |
 | Pilotage | Tableau de bord (occupation, attendu, encaissé, retards, 6 derniers mois), export CSV |
@@ -73,9 +73,8 @@ anciennes politiques `USING (true)`, qui laissaient toutes les données lisibles
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | oui | Clé publique (`NEXT_PUBLIC_SUPABASE_ANON_KEY` est aussi acceptée) |
 | `SUPABASE_SERVICE_ROLE_KEY` | pour le cron et le paiement en ligne | Clé serveur, jamais exposée au navigateur |
 | `CRON_SECRET` | pour le cron | Secret envoyé par Vercel Cron (`Authorization: Bearer …`) |
-| `SASPAY_SECRET_KEY` | non | Clé secrète SasPay (`sk_test_…` ou `sk_live_…`) : active le paiement en ligne des abonnements |
+| `SASPAY_SECRET_KEY` | non | Clé secrète du compte SasPay de la plateforme : paiement des abonnements |
 | `SASPAY_WEBHOOK_SECRET` | avec SasPay | Secret de signature du webhook SasPay |
-| `SASPAY_RENT_PAYMENTS` | non | `enabled` pour ouvrir aussi le paiement des loyers en ligne (fonds reçus sur le compte de la plateforme) |
 | `INFOBIP_API_KEY`, `INFOBIP_BASE_URL` | non | Active l'envoi réel des SMS ; sans clé, ils sont simulés |
 
 Dans Supabase (Authentication > URL Configuration), ajoutez `https://votre-domaine/auth/callback`
@@ -107,6 +106,17 @@ lib/                            Accès Supabase, offres, formats, messages, paie
 proxy.ts                        Rafraîchissement de session et protection des routes privées
 supabase/migrations/            Schéma SQL, RLS, fonctions métier
 ```
+
+## Paiement en ligne : qui encaisse quoi
+
+| Paiement | Compte qui reçoit l'argent | Configuration |
+| --- | --- | --- |
+| Abonnement d'une agence à Loyéo | Compte SasPay de la plateforme | `SASPAY_SECRET_KEY` et `SASPAY_WEBHOOK_SECRET` dans Vercel |
+| Loyer payé par un locataire | Compte SasPay **de l'agence** | Clé saisie par l'agence dans Paramètres > Encaissement des loyers |
+
+Les clés des agences sont vérifiées auprès de SasPay puis chiffrées dans Supabase Vault ; seul le
+serveur peut les déchiffrer. Chaque agence a son propre webhook :
+`/api/webhooks/saspay/agences/<identifiant de l'agence>` (l'adresse exacte est affichée dans Paramètres).
 
 ## Sécurité
 

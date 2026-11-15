@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Check } from "lucide-react";
 import { startSubscriptionCheckoutAction } from "@/app/actions/billing";
+import { removeSaspayAccountAction, saveSaspayAccountAction } from "@/app/actions/payment-account";
 import { updateAgencyAction } from "@/app/actions/settings";
 import { ActionButton } from "@/components/action-button";
 import { ActionForm } from "@/components/action-form";
@@ -35,10 +36,14 @@ export default async function SettingsPage({ searchParams }: Props) {
     }
   }
 
-  const [{ agency, role }, { count: unitCount }] = await Promise.all([
+  const [{ agency, role }, { count: unitCount }, { data: payAccount }, appUrl] = await Promise.all([
     getAgencyContext(),
     supabase.from("units").select("id", { count: "exact", head: true }),
+    // État du compte d'encaissement de l'agence (jamais la clé : seulement son indice).
+    supabase.from("agency_payment_accounts").select("key_hint, mode, verified_at, webhook_secret_id").maybeSingle(),
+    getAppUrl(),
   ]);
+  const account = payAccount as { key_hint: string; mode: "TEST" | "LIVE"; verified_at: string | null; webhook_secret_id: string | null } | null;
 
   const currentId = effectivePlan(agency);
   const current = PLANS[currentId];
@@ -138,6 +143,114 @@ export default async function SettingsPage({ searchParams }: Props) {
           <p className="hint mt-4">Mode test SasPay : aucun argent réel n'est débité.</p>
         ) : (
           <p className="hint mt-4">Paiement sécurisé par SasPay : mobile money ou carte bancaire.</p>
+        )}
+      </section>
+
+      {/* Encaissement des loyers sur le compte de l'agence */}
+      <section className="card p-5 sm:p-6">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Encaissement des loyers en ligne</h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-600">
+              Vos locataires paient leur loyer par Mobile Money ou carte depuis le lien reçu par SMS ou WhatsApp.
+              L'argent arrive <strong>directement sur votre propre compte SasPay</strong> : {BRAND.name} ne le touche jamais.
+            </p>
+          </div>
+          {account ? (
+            <span className={`badge shrink-0 ${account.mode === "LIVE" ? "badge-green" : "badge-amber"}`}>
+              {account.mode === "LIVE" ? "Activé" : "Activé · mode test"}
+            </span>
+          ) : (
+            <span className="badge badge-slate shrink-0">Non configuré</span>
+          )}
+        </div>
+
+        {account ? (
+          <dl className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-slate-500">Clé enregistrée</dt>
+              <dd className="money font-semibold text-slate-900">{account.key_hint}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Vérifiée le</dt>
+              <dd className="font-semibold text-slate-900">{formatDate(account.verified_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Confirmation automatique (webhook)</dt>
+              <dd className={`font-semibold ${account.webhook_secret_id ? "text-emerald-700" : "text-amber-700"}`}>
+                {account.webhook_secret_id ? "Configurée" : "À configurer"}
+              </dd>
+            </div>
+          </dl>
+        ) : null}
+
+        {currentId === "STARTER" ? (
+          <p className="alert-info mt-4">Le paiement des loyers en ligne est inclus à partir de l'offre {PLANS.PRO.name}.</p>
+        ) : null}
+
+        {isAdmin ? (
+          <div className="mt-5 grid gap-6 lg:grid-cols-[1fr_1.1fr]">
+            <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-700">
+              <li>
+                Créez votre compte marchand sur{" "}
+                <a href="https://app.saspay.me" target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-700 hover:underline">app.saspay.me</a>{" "}
+                et faites vérifier votre identité.
+              </li>
+              <li>
+                Dans <strong>Développeur</strong>, créez une clé secrète avec la portée <strong>PAYIN</strong> (ou BOTH) et collez-la ci-contre.
+              </li>
+              <li>
+                Dans <strong>Webhooks</strong>, créez un webhook vers l'adresse ci-dessous, événement <strong>transaction.success</strong>,
+                puis collez son secret de signature ci-contre.
+                <code className="money mt-1.5 block break-all rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-800">
+                  {appUrl}/api/webhooks/saspay/agences/{agency.id}
+                </code>
+              </li>
+            </ol>
+
+            <div>
+              <ActionForm action={saveSaspayAccountAction} submitLabel={account ? "Mettre à jour" : "Activer l'encaissement"} submitClassName="btn btn-primary">
+                <div>
+                  <label htmlFor="pay-secret" className="label">Clé secrète SasPay</label>
+                  <input
+                    id="pay-secret"
+                    name="secret_key"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="input money"
+                    placeholder={account ? "Laisser vide pour conserver la clé actuelle" : "sk_live_…"}
+                    required={!account}
+                  />
+                  <p className="hint">Vérifiée auprès de SasPay puis stockée chiffrée. Elle ne sera plus jamais affichée.</p>
+                </div>
+                <div>
+                  <label htmlFor="pay-webhook" className="label">Secret de signature du webhook</label>
+                  <input
+                    id="pay-webhook"
+                    name="webhook_secret"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="input money"
+                    placeholder={account?.webhook_secret_id ? "Laisser vide pour ne pas le changer" : "Affiché une seule fois par SasPay"}
+                  />
+                  <p className="hint">Facultatif mais recommandé : sans lui, les paiements sont confirmés au retour du locataire ou lors du contrôle quotidien.</p>
+                </div>
+              </ActionForm>
+              {account ? (
+                <ActionButton
+                  action={removeSaspayAccountAction}
+                  confirm="Retirer votre compte SasPay ? Vos locataires ne pourront plus payer en ligne."
+                  className="btn btn-danger mt-3"
+                >
+                  Retirer le compte
+                </ActionButton>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="hint mt-4">Seul un administrateur de l'agence peut configurer l'encaissement.</p>
         )}
       </section>
 

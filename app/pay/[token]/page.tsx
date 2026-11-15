@@ -6,7 +6,6 @@ import { PayButton } from "@/components/pay-button";
 import { ReceiptButton } from "@/components/receipt-button";
 import { BRAND } from "@/lib/brand";
 import { formatDate, formatMoney, methodLabel } from "@/lib/format";
-import { isRentOnlinePaymentEnabled } from "@/lib/payments/saspay";
 import { settleRecentPending } from "@/lib/payments/settle";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAppUrl } from "@/lib/url";
@@ -77,7 +76,8 @@ export default async function PayPage({ params, searchParams }: Props) {
   const balance = Math.max(expected - paid, 0);
   const isPaid = invoice.status === "PAID";
   const overdue = !isPaid && (invoice.due_date ?? "") < todayISO();
-  const canPayOnline = !isPaid && invoice.online_payment && isRentOnlinePaymentEnabled() && isAdminConfigured();
+  // online_payment : l'agence a configuré son propre compte SasPay et son offre le permet.
+  const canPayOnline = !isPaid && invoice.online_payment && isAdminConfigured();
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-4 py-8">

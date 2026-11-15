@@ -4,37 +4,38 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 /**
  * Adaptateur SasPay (https://docs.saspay.me) — mobile money et carte en Afrique de l'Ouest et du Centre.
  *
- * Parcours utilisé : « checkout hébergé ». Loyéo crée une session de paiement, le client est
- * redirigé vers la page SasPay où il choisit son opérateur (Wave, Orange Money, MTN, Moov…).
+ * Deux comptes marchands distincts :
+ *   - le compte de la PLATEFORME (variable SASPAY_SECRET_KEY) encaisse les abonnements ;
+ *   - le compte de CHAQUE AGENCE (clé chiffrée dans Supabase Vault) encaisse ses loyers.
+ * Chaque fonction reçoit donc la clé à utiliser ; sans clé, c'est celle de la plateforme.
  *
  * Sécurité : on ne fait jamais confiance à un statut reçu. Avant toute écriture, l'état de la
- * session est relu chez SasPay (GET /checkout-sessions/{id}/status/), authentifié par la clé
- * secrète, qui ne quitte jamais le serveur.
+ * session est relu chez SasPay avec la clé secrète du compte concerné, qui ne quitte jamais le serveur.
  */
 const BASE_URL = (process.env.SASPAY_API_URL ?? "https://api.saspay.me/api/v1").replace(/\/+$/, "");
 
 // trim : un espace ou un retour à la ligne copié avec la clé la rend invalide (401).
-const secretKey = () => (process.env.SASPAY_SECRET_KEY ?? "").trim();
+const platformKey = () => (process.env.SASPAY_SECRET_KEY ?? "").trim();
 
-export const isPaymentProviderConfigured = () => secretKey().startsWith("sk_");
+export const SECRET_KEY_RE = /^sk_(test|live)_[A-Za-z0-9_-]{8,}$/;
+
+/** Le compte de la plateforme (abonnements) est configuré. */
+export const isPaymentProviderConfigured = () => platformKey().startsWith("sk_");
 
 /** true avec une clé sk_test_… : aucun argent réel ne circule. */
-export const isTestMode = () => secretKey().startsWith("sk_test_");
+export const isTestMode = (key: string = platformKey()) => key.startsWith("sk_test_");
 
-/**
- * Les loyers payés en ligne arrivent sur le compte marchand SasPay de la plateforme : l'exploitant
- * doit ensuite les reverser aux agences. Désactivé par défaut ; à activer en connaissance de cause
- * avec SASPAY_RENT_PAYMENTS=enabled (les abonnements, eux, fonctionnent dès que la clé est présente).
- */
-export const isRentOnlinePaymentEnabled = () =>
-  isPaymentProviderConfigured() && process.env.SASPAY_RENT_PAYMENTS === "enabled";
+/** « sk_live_…ab12 » : permet d'identifier une clé sans jamais l'afficher. */
+export const keyHint = (key: string) => `${key.startsWith("sk_live_") ? "sk_live_" : "sk_test_"}…${key.slice(-4)}`;
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
+type CallResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
+
+async function call<T>(path: string, key: string, init: RequestInit = {}): Promise<CallResult<T>> {
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${secretKey()}`,
+        Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
         Accept: "application/json",
         ...init.headers,
@@ -59,6 +60,22 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<{ ok: true
   }
 }
 
+function refusal(status: number): string {
+  if (status === 401) return "la clé SasPay est refusée (invalide ou révoquée).";
+  if (status === 403) return "la clé SasPay n'a pas le droit d'encaisser (portée PAYIN ou BOTH requise) ou le compte est suspendu.";
+  if (status === 0) return "SasPay est injoignable pour le moment.";
+  return `SasPay a répondu ${status}.`;
+}
+
+/** Vérifie qu'une clé est acceptée par SasPay pour l'encaissement, sans rien créer. */
+export async function validateKey(key: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!SECRET_KEY_RE.test(key)) {
+    return { ok: false, error: "Format de clé invalide : elle doit commencer par sk_live_ ou sk_test_." };
+  }
+  const result = await call<unknown>("/checkout-sessions/?page_size=1", key);
+  return result.ok ? { ok: true } : { ok: false, error: `Clé non acceptée : ${refusal(result.status)}` };
+}
+
 export interface CheckoutInput {
   amount: number;
   description: string;
@@ -73,15 +90,15 @@ export interface CheckoutInput {
 
 export type CheckoutResult = { ok: true; sessionId: string; checkoutUrl: string } | { ok: false; error: string };
 
-export async function createCheckout(input: CheckoutInput): Promise<CheckoutResult> {
-  if (!isPaymentProviderConfigured()) {
+export async function createCheckout(input: CheckoutInput, key: string = platformKey()): Promise<CheckoutResult> {
+  if (!key.startsWith("sk_")) {
     return { ok: false, error: "Le paiement en ligne n'est pas configuré." };
   }
   if (!Number.isInteger(input.amount) || input.amount <= 0) {
     return { ok: false, error: "Montant invalide." };
   }
 
-  const result = await call<{ id?: string; checkout_url?: string }>("/checkout-sessions/", {
+  const result = await call<{ id?: string; checkout_url?: string }>("/checkout-sessions/", key, {
     method: "POST",
     body: JSON.stringify({
       amount: `${input.amount}.00`,
@@ -97,12 +114,7 @@ export async function createCheckout(input: CheckoutInput): Promise<CheckoutResu
   });
 
   if (!result.ok) {
-    if (result.status === 401) {
-      return { ok: false, error: "Paiement indisponible : la clé SasPay de la plateforme est refusée (invalide ou révoquée)." };
-    }
-    if (result.status === 403) {
-      return { ok: false, error: "Paiement indisponible : la clé SasPay n'a pas le droit d'encaisser (portée PAYIN requise) ou le compte est suspendu." };
-    }
+    if ([0, 401, 403].includes(result.status)) return { ok: false, error: `Paiement indisponible : ${refusal(result.status)}` };
     return { ok: false, error: "Le prestataire de paiement a refusé la demande. Réessayez plus tard." };
   }
   if (!result.data.id || !result.data.checkout_url) {
@@ -120,12 +132,13 @@ export interface CheckoutState {
   transactionId: string | null;
 }
 
-/** Source de vérité : état d'une session relu directement chez SasPay. null = vérification impossible. */
-export async function getCheckoutState(sessionId: string): Promise<CheckoutState | null> {
-  if (!isPaymentProviderConfigured() || !/^[0-9a-f-]{36}$/i.test(sessionId)) return null;
+/** Source de vérité : état d'une session relu chez SasPay. null = vérification impossible. */
+export async function getCheckoutState(sessionId: string, key: string = platformKey()): Promise<CheckoutState | null> {
+  if (!key.startsWith("sk_") || !/^[0-9a-f-]{36}$/i.test(sessionId)) return null;
 
   const status = await call<{ status?: string; transaction_id?: string | null; transaction_status?: string | null }>(
     `/checkout-sessions/${sessionId}/status/`,
+    key,
   );
   if (!status.ok) return null;
 
@@ -143,6 +156,7 @@ export async function getCheckoutState(sessionId: string): Promise<CheckoutState
   // Montant confirmé par la transaction elle-même (revérifiée côté gateway par SasPay).
   const tx = await call<{ status?: string; requested_amount?: string; network?: string }>(
     `/payments/${transactionId}/verify/`,
+    key,
   );
   if (!tx.ok || (tx.data.status ?? "").toUpperCase() !== "SUCCESS") return null;
 
@@ -168,9 +182,14 @@ export function mapNetwork(network: string | null | undefined): string {
 /**
  * Vérifie un webhook SasPay : HMAC-SHA256 de « {timestamp}.{corps brut} » avec le secret de
  * signature, horodatage refusé au-delà de 5 minutes (anti-rejeu), comparaison en temps constant.
+ * Sans secret fourni, c'est celui du compte de la plateforme qui est utilisé.
  */
-export function verifyWebhookSignature(rawBody: string, signature: string | null, timestamp: string | null): boolean {
-  const secret = (process.env.SASPAY_WEBHOOK_SECRET ?? "").trim();
+export function verifyWebhookSignature(
+  rawBody: string,
+  signature: string | null,
+  timestamp: string | null,
+  secret: string = (process.env.SASPAY_WEBHOOK_SECRET ?? "").trim(),
+): boolean {
   if (!secret || !signature || !timestamp || !/^\d+$/.test(timestamp)) return false;
   if (Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp)) > 300) return false;
 

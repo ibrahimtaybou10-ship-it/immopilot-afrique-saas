@@ -7,7 +7,8 @@ import { getAppUrl } from "@/lib/url";
 export const maxDuration = 30;
 
 /**
- * Webhook SasPay (à déclarer dans le tableau de bord SasPay, événement « transaction.success »).
+ * Webhook SasPay du compte de la PLATEFORME (abonnements).
+ * Les loyers ont leur propre webhook par agence : /api/webhooks/saspay/agences/{agencyId}.
  *
  * 1. La signature HMAC et l'horodatage sont vérifiés sur le corps BRUT : un appel forgé est rejeté.
  * 2. Le contenu n'est jamais cru sur parole : le webhook sert seulement de signal, et chaque
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "not configured" }, { status: 503 });
   }
 
-  const counts = await settleRecentPending(createAdminClient(), await getAppUrl(), { limit: 25 });
+  const counts = await settleRecentPending(createAdminClient(), await getAppUrl(), { kind: "SUBSCRIPTION", limit: 25 });
   if (counts.unverifiable > 0 && counts.paid === 0) {
     // Vérification impossible pour l'instant : on demande à SasPay de renvoyer la notification.
     return NextResponse.json({ error: "verification unavailable" }, { status: 502 });

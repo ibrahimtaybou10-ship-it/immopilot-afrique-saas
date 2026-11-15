@@ -5,6 +5,7 @@ import { INVOICE_SELECT, toInvoice } from "@/lib/queries";
 import { sendSms } from "@/lib/sms";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { PlanId } from "@/lib/types";
+import { getAgencyCredentials } from "./accounts";
 import { getCheckoutState, type CheckoutState } from "./saspay";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -29,10 +30,26 @@ export type SettleOutcome = "paid" | "failed" | "pending" | "unverifiable" | "ig
  * Idempotent : appelé plusieurs fois (webhook, retour du client, tâche quotidienne),
  * un paiement n'est appliqué qu'une seule fois.
  */
-export async function settlePendingTransaction(admin: AdminClient, tx: PendingTransaction, appUrl: string): Promise<SettleOutcome> {
+export async function settlePendingTransaction(
+  admin: AdminClient,
+  tx: PendingTransaction,
+  appUrl: string,
+  keyCache: Map<string, string | null> = new Map(),
+): Promise<SettleOutcome> {
   if (tx.status !== "PENDING") return "ignored";
 
-  const state = await getCheckoutState(tx.provider_reference);
+  // Loyer : session créée sur le compte SasPay DE L'AGENCE. Abonnement : compte de la plateforme.
+  let key: string | undefined;
+  if (tx.kind === "RENT") {
+    if (!keyCache.has(tx.agency_id)) {
+      keyCache.set(tx.agency_id, (await getAgencyCredentials(admin, tx.agency_id))?.secretKey ?? null);
+    }
+    const agencyKey = keyCache.get(tx.agency_id);
+    if (!agencyKey) return "unverifiable";
+    key = agencyKey;
+  }
+
+  const state = await getCheckoutState(tx.provider_reference, key);
   if (!state) return "unverifiable";
   if (state.status === "PENDING") return "pending";
 
@@ -56,7 +73,7 @@ export async function settlePendingTransaction(admin: AdminClient, tx: PendingTr
 export async function settleRecentPending(
   admin: AdminClient,
   appUrl: string,
-  filter: { rentPaymentId?: string; agencyId?: string; limit?: number } = {},
+  filter: { rentPaymentId?: string; agencyId?: string; kind?: "RENT" | "SUBSCRIPTION"; limit?: number } = {},
 ): Promise<Record<SettleOutcome, number>> {
   let query = admin
     .from("payment_transactions")
@@ -68,11 +85,13 @@ export async function settleRecentPending(
     .limit(filter.limit ?? 50);
   if (filter.rentPaymentId) query = query.eq("rent_payment_id", filter.rentPaymentId);
   if (filter.agencyId) query = query.eq("agency_id", filter.agencyId);
+  if (filter.kind) query = query.eq("kind", filter.kind);
 
   const { data } = await query;
   const counts: Record<SettleOutcome, number> = { paid: 0, failed: 0, pending: 0, unverifiable: 0, ignored: 0 };
+  const keyCache = new Map<string, string | null>();
   for (const tx of (data ?? []) as PendingTransaction[]) {
-    counts[await settlePendingTransaction(admin, tx, appUrl)] += 1;
+    counts[await settlePendingTransaction(admin, tx, appUrl, keyCache)] += 1;
   }
   return counts;
 }
