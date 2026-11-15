@@ -55,7 +55,10 @@ export async function startSubscriptionCheckoutAction(planId: PlanId): Promise<A
     status: "PENDING",
     metadata: { plan: plan.id, checkout_url: checkout.checkoutUrl },
   });
-  if (error) return fail("Impossible d'initialiser le paiement. Réessayez.");
+  if (error) {
+    console.error("[billing] enregistrement du paiement d'abonnement impossible :", error.code ?? "", error.message);
+    return fail("Impossible d'initialiser le paiement. Réessayez.");
+  }
 
   redirect(checkout.checkoutUrl);
 }
@@ -133,7 +136,10 @@ export async function startRentCheckoutAction(token: string): Promise<ActionResu
     status: "PENDING",
     metadata: { checkout_url: checkout.checkoutUrl },
   });
-  if (error) return fail("Impossible d'initialiser le paiement. Réessayez.");
+  if (error) {
+    console.error("[billing] enregistrement du paiement de loyer impossible :", error.code ?? "", error.message);
+    return fail("Impossible d'initialiser le paiement. Réessayez.");
+  }
 
   redirect(checkout.checkoutUrl);
 }
