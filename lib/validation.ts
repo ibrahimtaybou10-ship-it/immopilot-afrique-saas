@@ -103,6 +103,20 @@ export const leaseSchema = z.object({
   deposit_amount: amount("Caution"),
   due_day: dueDay,
   start_date: z.string().regex(DATE_RE, "Date d'entrée invalide"),
+  // Impayés antérieurs (case cochée = le locataire doit déjà de l'argent)
+  has_arrears: z
+    .string()
+    .optional()
+    .transform((v) => v === "on"),
+  arrears_amount: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? Number(v.replace(/\s/g, "")) : 0))
+    .refine((n) => Number.isInteger(n) && n >= 0 && n <= 1_000_000_000, "Montant des impayés invalide"),
+  arrears_note: optional(200),
+}).refine((v) => !v.has_arrears || v.arrears_amount >= 1, {
+  message: "Indiquez le montant des impayés, ou décochez la case.",
+  path: ["arrears_amount"],
 });
 
 export const terminateSchema = z.object({

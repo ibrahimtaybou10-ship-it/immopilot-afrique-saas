@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatMoney } from "@/lib/format";
 
 export interface VacantUnit {
@@ -25,6 +25,17 @@ export function LeaseFields({ units, defaultDueDay, today, currency }: Props) {
   const [rent, setRent] = useState(String(first?.baseRent ?? 0));
   const [charges, setCharges] = useState(String(first?.charges ?? 0));
   const [deposit, setDeposit] = useState(String((first?.baseRent ?? 0) * 2));
+  const [hasArrears, setHasArrears] = useState(false);
+  const arrearsBox = useRef<HTMLInputElement>(null);
+
+  // Le formulaire est vidé après chaque bail créé : la case des impayés repart décochée.
+  useEffect(() => {
+    const form = arrearsBox.current?.form;
+    if (!form) return;
+    const onReset = () => setHasArrears(false);
+    form.addEventListener("reset", onReset);
+    return () => form.removeEventListener("reset", onReset);
+  }, []);
 
   function selectUnit(id: string) {
     setUnitId(id);
@@ -106,6 +117,38 @@ export function LeaseFields({ units, defaultDueDay, today, currency }: Props) {
             <p className="hint">Jour du mois où le loyer est attendu (1 à 28).</p>
           </div>
         </div>
+      </fieldset>
+
+      <fieldset className="space-y-3 border-t border-slate-100 pt-4">
+        <legend className="sr-only">Impayés antérieurs</legend>
+        <label className={`flex items-start gap-3 rounded-xl border p-3.5 ${hasArrears ? "border-rose-200 bg-rose-50" : "border-slate-200 bg-slate-50"}`}>
+          <input
+            ref={arrearsBox}
+            type="checkbox"
+            name="has_arrears"
+            checked={hasArrears}
+            onChange={(e) => setHasArrears(e.target.checked)}
+            className="mt-0.5 size-4 rounded border-slate-300 accent-rose-600"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-slate-900">Ce locataire a déjà des loyers impayés</span>
+            <span className="block text-xs text-slate-600">
+              Cochez s'il doit de l'argent d'avant son enregistrement : le montant sera suivi, relancé et encaissé comme un loyer.
+            </span>
+          </span>
+        </label>
+        {hasArrears ? (
+          <div className="grid gap-4 sm:grid-cols-[12rem_1fr]">
+            <div>
+              <label htmlFor="lease-arrears" className="label">Montant impayé ({currency})</label>
+              <input id="lease-arrears" name="arrears_amount" type="number" inputMode="numeric" min={1} step={1} required className="input money" placeholder="150000" />
+            </div>
+            <div>
+              <label htmlFor="lease-arrears-note" className="label">Détail (facultatif)</label>
+              <input id="lease-arrears-note" name="arrears_note" maxLength={200} className="input" placeholder="Ex. loyers d'août à octobre 2026" />
+            </div>
+          </div>
+        ) : null}
       </fieldset>
     </>
   );

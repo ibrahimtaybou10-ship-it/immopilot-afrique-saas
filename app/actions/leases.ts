@@ -30,13 +30,21 @@ export async function createLeaseAction(_prev: ActionResult, formData: FormData)
     p_email: v.email,
     p_profession: v.profession,
     p_id_card_number: v.id_card_number,
+    p_arrears_amount: v.has_arrears ? v.arrears_amount : 0,
+    p_arrears_note: v.has_arrears ? v.arrears_note : null,
   });
   if (error) {
     return fail(error.code === "23505" ? "Ce lot est déjà occupé par un bail actif." : dbError(error));
   }
 
   revalidatePath("/dashboard", "layout");
-  return { ok: true, message: `Bail créé pour ${v.full_name}.` };
+  return {
+    ok: true,
+    message:
+      v.has_arrears && v.arrears_amount > 0
+        ? `Bail créé pour ${v.full_name}, avec ${new Intl.NumberFormat("fr-FR").format(v.arrears_amount)} FCFA d'impayés à recouvrer.`
+        : `Bail créé pour ${v.full_name}.`,
+  };
 }
 
 export async function terminateLeaseAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
