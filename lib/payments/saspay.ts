@@ -13,7 +13,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  */
 const BASE_URL = (process.env.SASPAY_API_URL ?? "https://api.saspay.me/api/v1").replace(/\/+$/, "");
 
-const secretKey = () => process.env.SASPAY_SECRET_KEY ?? "";
+// trim : un espace ou un retour à la ligne copié avec la clé la rend invalide (401).
+const secretKey = () => (process.env.SASPAY_SECRET_KEY ?? "").trim();
 
 export const isPaymentProviderConfigured = () => secretKey().startsWith("sk_");
 
@@ -96,6 +97,12 @@ export async function createCheckout(input: CheckoutInput): Promise<CheckoutResu
   });
 
   if (!result.ok) {
+    if (result.status === 401) {
+      return { ok: false, error: "Paiement indisponible : la clé SasPay de la plateforme est refusée (invalide ou révoquée)." };
+    }
+    if (result.status === 403) {
+      return { ok: false, error: "Paiement indisponible : la clé SasPay n'a pas le droit d'encaisser (portée PAYIN requise) ou le compte est suspendu." };
+    }
     return { ok: false, error: "Le prestataire de paiement a refusé la demande. Réessayez plus tard." };
   }
   if (!result.data.id || !result.data.checkout_url) {
@@ -163,7 +170,7 @@ export function mapNetwork(network: string | null | undefined): string {
  * signature, horodatage refusé au-delà de 5 minutes (anti-rejeu), comparaison en temps constant.
  */
 export function verifyWebhookSignature(rawBody: string, signature: string | null, timestamp: string | null): boolean {
-  const secret = process.env.SASPAY_WEBHOOK_SECRET ?? "";
+  const secret = (process.env.SASPAY_WEBHOOK_SECRET ?? "").trim();
   if (!secret || !signature || !timestamp || !/^\d+$/.test(timestamp)) return false;
   if (Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp)) > 300) return false;
 
